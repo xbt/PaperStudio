@@ -8,6 +8,10 @@
 
 
 项目采用单 HTML 文件架构（依赖少量静态资源），无需复杂的后端环境，即开即用。
+<img width="1920" height="877" alt="QQ截图20251207180511" src="https://github.com/user-attachments/assets/f7e2364e-58be-4c85-b463-e009d2721275" />
+
+
+
 
 ## ✨ 主要特性
 
