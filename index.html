@@ -8,6 +8,8 @@
     <link href="./static/toastify.min.css" rel="stylesheet" />
     <script src="./static/fabric.min.js"></script>
     <script src="./static/jspdf.umd.min.js"></script>
+    <script src="./static/svg2pdf.umd.min.js"></script>
+    <script src="./static/opentype.min.js"></script>
     <link href="./static/icons.min.css" rel="stylesheet" />
     <script src="./static/hotkeys-js.min.js"></script>
     <script src="./static/toastify-js.js"></script>
@@ -683,40 +685,40 @@
       <p class="mt-4 text-slate-600 font-medium animate-pulse">正在加载模板...</p>
     </div>
     <script>
-      // --- 1. 配置与常量 ---
+      /**
+       * PaperStudio Logic
+       * 优化版 - 保持原有功能完整
+       */
+
+      // --- 1. 配置与工具 ---
       const CONFIG = {
         DPI: 96,
-        MM_TO_PX: 3.7795, // 1mm = 3.7795px
-        PT_TO_PX: 1.3333, // 1pt = 1.3333px
-        CANVAS_MARGIN_Y: 40,
+        MM_TO_PX: 3.7795,
+        PT_TO_PX: 1.3333,
         SIZES: {
           A3: { w: 297, h: 420 },
           A4: { w: 210, h: 297 },
           A5: { w: 148, h: 210 },
-          A6: { w: 105, h: 148 },
           B4: { w: 250, h: 353 },
           B5: { w: 176, h: 250 },
           Letter: { w: 215.9, h: 279.4 },
           Legal: { w: 215.9, h: 355.6 },
           "16开": { w: 210, h: 285 },
           "32开": { w: 185, h: 260 },
-          大32开: { w: 203, h: 276 },
           方信笺纸: { w: 230, h: 230 },
         },
       };
 
-      // --- 2. 工具类 ---
       const Utils = {
         mm2px: (mm) => mm * CONFIG.MM_TO_PX,
         px2mm: (px) => px / CONFIG.MM_TO_PX,
         pt2px: (pt) => Math.round(pt * CONFIG.PT_TO_PX),
         px2pt: (px) => Math.round(px / CONFIG.PT_TO_PX),
 
-        // 使用 Toastify 显示提示消息
-        toast: (msg, type = "info") => {
-          let bg = type === "error" ? "linear-gradient(to right, #ff5f6d, #ffc371)" : type === "success" ? "linear-gradient(to right, #00b09b, #96c93d)" : "#333";
+        toast: (text, type = "info") => {
+          const bg = type === "error" ? "linear-gradient(to right, #ff5f6d, #ffc371)" : type === "success" ? "linear-gradient(to right, #00b09b, #96c93d)" : "#333";
           Toastify({
-            text: msg,
+            text,
             duration: 3000,
             gravity: "top",
             position: "center",
@@ -724,12 +726,11 @@
           }).showToast();
         },
 
-        // 节流函数 (优化 resize 事件)
         throttle: (func, limit) => {
           let inThrottle;
           return function () {
-            const args = arguments;
-            const context = this;
+            const args = arguments,
+              context = this;
             if (!inThrottle) {
               func.apply(context, args);
               inThrottle = true;
@@ -737,73 +738,49 @@
             }
           };
         },
+
         generateSmartRectPath: (w, h, r, style) => {
-          // r 是对象 { tl, tr, br, bl }
-          // 限制半径不超过宽高的一半，防止重叠渲染错误
           const maxR = Math.min(w, h) / 2;
-          const tl = Math.min(r.tl, maxR);
-          const tr = Math.min(r.tr, maxR);
-          const br = Math.min(r.br, maxR);
-          const bl = Math.min(r.bl, maxR);
+          const tl = Math.min(r.tl, maxR),
+            tr = Math.min(r.tr, maxR),
+            br = Math.min(r.br, maxR),
+            bl = Math.min(r.bl, maxR);
 
           let path = `M ${tl} 0 L ${w - tr} 0 `;
 
           if (style === "round") {
-            // 圆角 (Arc): A rx ry rotation large-arc sweep x y
-            if (tr > 0) path += `A ${tr} ${tr} 0 0 1 ${w} ${tr} `;
-            else path += `L ${w} 0 `;
-
+            path += tr > 0 ? `A ${tr} ${tr} 0 0 1 ${w} ${tr} ` : `L ${w} 0 `;
             path += `L ${w} ${h - br} `;
-
-            if (br > 0) path += `A ${br} ${br} 0 0 1 ${w - br} ${h} `;
-            else path += `L ${w} ${h} `;
-
+            path += br > 0 ? `A ${br} ${br} 0 0 1 ${w - br} ${h} ` : `L ${w} ${h} `;
             path += `L ${bl} ${h} `;
-
-            if (bl > 0) path += `A ${bl} ${bl} 0 0 1 0 ${h - bl} `;
-            else path += `L 0 ${h} `;
-
+            path += bl > 0 ? `A ${bl} ${bl} 0 0 1 0 ${h - bl} ` : `L 0 ${h} `;
             path += `L 0 ${tl} `;
-
-            if (tl > 0) path += `A ${tl} ${tl} 0 0 1 ${tl} 0 `;
-            else path += `L 0 0 `;
+            path += tl > 0 ? `A ${tl} ${tl} 0 0 1 ${tl} 0 ` : `L 0 0 `;
           } else {
-            // 斜角 (Bevel): 使用 LineTo 直接切角
-            path += `L ${w} ${tr} `;
-            path += `L ${w} ${h - br} `;
-            path += `L ${w - br} ${h} `;
-            path += `L ${bl} ${h} `;
-            path += `L 0 ${h - bl} `;
-            path += `L 0 ${tl} `;
-            path += `L ${tl} 0 `;
+            // Bevel
+            path += `L ${w} ${tr} L ${w} ${h - br} L ${w - br} ${h} L ${bl} ${h} L 0 ${h - bl} L 0 ${tl} L ${tl} 0 `;
           }
-
-          path += "Z";
-          return path;
+          return path + "Z";
         },
       };
 
-      // --- 3. App 主逻辑 ---
+      // --- 2. App 主逻辑 ---
       const App = {
         canvas: null,
-
         state: {
           currentPaper: { ...CONFIG.SIZES["A4"] },
-          baseWidth: 0, // 100% 缩放下的像素宽
-          baseHeight: 0, // 100% 缩放下的像素高
+          baseWidth: 0,
+          baseHeight: 0,
           zoom: 1,
           isPanning: false,
-          clipboard: null, // 剪贴板数据
-          lastGridSettings: {},
+          clipboard: null,
           pasteCount: 0,
-          selectionQueue: [], // 维护多选顺序,
+          selectionQueue: [],
           localFontsLoaded: false,
           hasUnsavedChanges: false,
         },
 
-        // --- 初始化 ---
         init: function () {
-          // 初始化 Fabric Canvas
           this.canvas = new fabric.Canvas("paperCanvas", {
             backgroundColor: "#fff",
             preserveObjectStacking: true,
@@ -815,7 +792,6 @@
             hoverCursor: "move",
           });
 
-          // 配置全局对象样式
           fabric.Object.prototype.set({
             borderColor: "#3b82f6",
             borderScaleFactor: 1.5,
@@ -828,59 +804,44 @@
             uniformScaling: false,
             uniScaleKey: "shiftKey",
           });
-          // 初始化子模块
+
           this.paper.init();
           this.events.initCanvasEvents();
           this.history.init();
           this.zoom.autoFit();
 
-          // 加载本地字体
-          if ("queryLocalFonts" in window) {
-            setTimeout(this.loadLocalFonts, 1000);
-          }
-
-          console.log("App Initialized");
+          if ("queryLocalFonts" in window) setTimeout(() => this.loadLocalFonts(), 1000);
         },
 
-        // --- 历史记录模块 (Undo/Redo) ---
+        // --- 历史记录 ---
         history: {
           stack: [],
           index: -1,
-          locked: false, // 锁定状态，用于防止程序内部操作（如加载模版）触发保存
+          locked: false,
           maxSteps: 20,
 
           init: function () {
-            const saveHandler = () => {
-              // 只有在非锁定状态下才保存
-              if (!this.locked) this.saveState();
+            const saveHandler = (e) => {
+              if (!this.locked && (!e || !e.target.isGrid)) this.saveState();
             };
-
-            App.canvas.on("object:modified", saveHandler);
-            App.canvas.on("object:added", (e) => {
-              // 排除网格线和非锁定状态
-              if (e.target && !e.target.isGrid && !this.locked) saveHandler();
+            App.canvas.on({
+              "object:modified": saveHandler,
+              "object:added": saveHandler,
+              "object:removed": saveHandler,
             });
-            App.canvas.on("object:removed", (e) => {
-              if (e.target && !e.target.isGrid && !this.locked) saveHandler();
-            });
-
-            // 注意：这里去掉了原来 init 中的 this.saveState()，防止刚打开就算一次操作
           },
 
           updateUI: function () {
             const btnUndo = document.getElementById("btnUndo");
             const btnRedo = document.getElementById("btnRedo");
-            if (!btnUndo || !btnRedo) return;
-
-            // 只有当 index > 0 时才能撤销（保留初始状态不被撤销删除）
-            btnUndo.disabled = this.index <= 0;
-            btnRedo.disabled = this.index >= this.stack.length - 1;
+            if (btnUndo && btnRedo) {
+              btnUndo.disabled = this.index <= 0;
+              btnRedo.disabled = this.index >= this.stack.length - 1;
+            }
           },
 
           saveState: function () {
             if (this.locked) return;
-
-            // 如果在撤销状态下进行了新操作，清除后面的记录
             if (this.index < this.stack.length - 1) {
               this.stack = this.stack.slice(0, this.index + 1);
             }
@@ -889,88 +850,75 @@
             json.objects = json.objects.filter((o) => !o.isGrid);
 
             this.stack.push(JSON.stringify(json));
-
-            if (this.stack.length > this.maxSteps) {
-              this.stack.shift();
-            } else {
-              this.index++;
-            }
+            if (this.stack.length > this.maxSteps) this.stack.shift();
+            else this.index++;
 
             this.updateUI();
             App.state.hasUnsavedChanges = true;
           },
 
-          // 新增：重置历史记录（用于加载模版后）
           reset: function () {
             this.stack = [];
             this.index = -1;
             this.locked = false;
-            this.saveState(); // 保存当前画面为“初始状态” (Index 0)
-            this.updateUI(); // 此时 Index 为 0，Undo 按钮应为禁用状态
+            this.saveState();
           },
 
           undo: function () {
-            /* 保持原样 */
             if (this.index <= 0) return;
-            this.index--;
-            this.load(this.stack[this.index]);
-            this.updateUI();
+            this.load(this.stack[--this.index]);
           },
 
           redo: function () {
-            /* 保持原样 */
             if (this.index >= this.stack.length - 1) return;
-            this.index++;
-            this.load(this.stack[this.index]);
-            this.updateUI();
+            this.load(this.stack[++this.index]);
           },
 
           load: function (jsonStr) {
-            this.locked = true; // 加载历史时锁定，防止循环触发保存
+            this.locked = true;
             App.canvas.loadFromJSON(jsonStr, () => {
               App.paper.drawGrid();
               App.canvas.renderAll();
               App.ui.updateLayerList();
-              App.ui.updateInspector(); // 更新属性面板
+              App.ui.updateInspector();
               this.locked = false;
+              this.updateUI();
             });
           },
         },
 
-        // --- 纸张与网格管理 ---
+        // --- 纸张与网格 ---
         paper: {
           init: function () {
             this.updateSize();
           },
 
-          // 获取当前UI配置
           getSettings: function () {
-            const getVal = (id, def) => (document.getElementById(id) ? document.getElementById(id).value : def);
-            const getCheck = (id) => (document.getElementById(id) ? document.getElementById(id).checked : false);
+            const el = (id) => document.getElementById(id);
+            const val = (id, def) => (el(id) ? el(id).value : def);
+            const chk = (id) => (el(id) ? el(id).checked : false);
 
             return {
-              marginTop: parseInt(getVal("marginTop", 37)) * CONFIG.MM_TO_PX,
-              marginBottom: parseInt(getVal("marginBottom", 35)) * CONFIG.MM_TO_PX,
-              marginLeft: parseInt(getVal("marginLeft", 28)) * CONFIG.MM_TO_PX,
-              marginRight: parseInt(getVal("marginRight", 26)) * CONFIG.MM_TO_PX,
-              rowCount: parseInt(getVal("rowCount", 20)),
-              gridColor: getVal("gridColor", "#e11d48"),
-              strokeWidth: parseInt(getVal("strokeWidth", 1)),
-              doubleFirst: getCheck("doubleFirst"),
-              doubleLast: getCheck("doubleLast"),
-              gridDashed: getCheck("gridDashed"),
-              gridDashArray: parseInt(getVal("gridDashArray", 4)),
-              paperBgColor: getVal("paperBgColor", "#ffffff"),
+              marginTop: parseInt(val("marginTop", 37)) * CONFIG.MM_TO_PX,
+              marginBottom: parseInt(val("marginBottom", 35)) * CONFIG.MM_TO_PX,
+              marginLeft: parseInt(val("marginLeft", 28)) * CONFIG.MM_TO_PX,
+              marginRight: parseInt(val("marginRight", 26)) * CONFIG.MM_TO_PX,
+              rowCount: parseInt(val("rowCount", 20)),
+              gridColor: val("gridColor", "#e11d48"),
+              strokeWidth: parseInt(val("strokeWidth", 1)),
+              doubleFirst: chk("doubleFirst"),
+              doubleLast: chk("doubleLast"),
+              gridDashed: chk("gridDashed"),
+              gridDashArray: parseInt(val("gridDashArray", 4)),
+              paperBgColor: val("paperBgColor", "#ffffff"),
             };
           },
 
-          // 更新纸张物理尺寸及方向
           updateSize: function () {
             const type = document.getElementById("paperSize").value;
             const customDiv = document.getElementById("customSizeInputs");
-
-            // 确定基础宽高
             let w, h;
+
             if (type === "CUSTOM") {
               customDiv.classList.remove("hidden");
               w = parseInt(document.getElementById("customW").value) || 210;
@@ -981,25 +929,14 @@
               h = CONFIG.SIZES[type].h;
             }
 
-            // 处理横纵向
             const isLandscape = document.getElementById("paperOrientation").checked;
-            const longEdge = Math.max(w, h);
-            const shortEdge = Math.min(w, h);
+            App.state.currentPaper.w = isLandscape ? Math.max(w, h) : Math.min(w, h);
+            App.state.currentPaper.h = isLandscape ? Math.min(w, h) : Math.max(w, h);
 
-            if (isLandscape) {
-              App.state.currentPaper.w = longEdge;
-              App.state.currentPaper.h = shortEdge;
-            } else {
-              App.state.currentPaper.w = shortEdge;
-              App.state.currentPaper.h = longEdge;
-            }
-
-            // 更新状态与UI
             App.state.baseWidth = App.state.currentPaper.w * CONFIG.MM_TO_PX;
             App.state.baseHeight = App.state.currentPaper.h * CONFIG.MM_TO_PX;
 
-            const orientationLabel = isLandscape ? "横向" : "纵向";
-            document.getElementById("canvasSizeLabel").innerText = `${type} - ${orientationLabel} (${App.state.currentPaper.w} x ${App.state.currentPaper.h} mm)`;
+            document.getElementById("canvasSizeLabel").innerText = `${type} - ${isLandscape ? "横向" : "纵向"} (${App.state.currentPaper.w} x ${App.state.currentPaper.h} mm)`;
 
             App.zoom.apply(App.state.zoom);
             App.state.hasUnsavedChanges = true;
@@ -1007,144 +944,103 @@
           },
 
           updateSettings: function () {
-            const rowCount = document.getElementById("rowCount");
-            if (rowCount) document.getElementById("rowCountDisplay").innerText = rowCount.value;
+            const rc = document.getElementById("rowCount");
+            if (rc) document.getElementById("rowCountDisplay").innerText = rc.value;
             App.state.hasUnsavedChanges = true;
             this.drawGrid();
           },
 
-          // 绘制网格线
           drawGrid: function () {
             const cfg = this.getSettings();
             const canvas = App.canvas;
             canvas.setBackgroundColor(cfg.paperBgColor, canvas.requestRenderAll.bind(canvas));
-            const objects = canvas.getObjects();
-            for (let i = objects.length - 1; i >= 0; i--) {
-              if (objects[i].isGrid) canvas.remove(objects[i]);
-            }
+
+            // 清除旧网格
+            canvas.remove(...canvas.getObjects().filter((o) => o.isGrid));
 
             if (cfg.rowCount === 0) {
               canvas.requestRenderAll();
               return;
             }
 
-            // 计算网格参数
-            const width = App.state.baseWidth;
-            const height = App.state.baseHeight;
-            const contentHeight = height - cfg.marginTop - cfg.marginBottom;
+            const contentHeight = App.state.baseHeight - cfg.marginTop - cfg.marginBottom;
             const lineHeight = contentHeight / cfg.rowCount;
-            const startX = cfg.marginLeft;
-            const endX = width - cfg.marginRight;
-
+            const startX = cfg.marginLeft,
+              endX = App.state.baseWidth - cfg.marginRight;
             const gridLines = [];
-            // 修改 createLine 函数，支持 options 参数
-            const createLine = (x1, y1, x2, y2, strokeW, options = {}) => {
-              return new fabric.Line([x1, y1, x2, y2], {
-                stroke: cfg.gridColor,
-                strokeWidth: strokeW,
-                selectable: false,
-                evented: false,
-                isGrid: true,
-                excludeFromExport: true,
-                originX: "center",
-                originY: "center",
-                ...options,
-              });
+
+            const addLine = (y, w, opts = {}) => {
+              gridLines.push(
+                new fabric.Line([startX, y, endX, y], {
+                  stroke: cfg.gridColor,
+                  strokeWidth: w,
+                  selectable: false,
+                  evented: false,
+                  isGrid: true,
+                  excludeFromExport: true,
+                  originX: "center",
+                  originY: "center",
+                  ...opts,
+                })
+              );
             };
 
             for (let i = 0; i <= cfg.rowCount; i++) {
               const y = cfg.marginTop + i * lineHeight;
-
-              // 处理首行双线
               if (i === 0 && cfg.doubleFirst) {
-                gridLines.push(createLine(startX, y - 2, endX, y - 2, 3));
-                gridLines.push(createLine(startX, y + 2, endX, y + 2, 1));
-              }
-              // 处理尾行双线
-              else if (i === cfg.rowCount && cfg.doubleLast) {
-                gridLines.push(createLine(startX, y - 2, endX, y - 2, 1));
-                gridLines.push(createLine(startX, y + 2, endX, y + 2, 3));
-              }
-              // 处理中间行
-              else {
-                let lineOpts = {};
-
-                if (cfg.gridDashed && i > 0 && i < cfg.rowCount) {
-                  lineOpts.strokeDashArray = [cfg.gridDashArray, cfg.gridDashArray];
-                }
-                gridLines.push(createLine(startX, y, endX, y, cfg.strokeWidth, lineOpts));
+                addLine(y - 2, 3);
+                addLine(y + 2, 1);
+              } else if (i === cfg.rowCount && cfg.doubleLast) {
+                addLine(y - 2, 1);
+                addLine(y + 2, 3);
+              } else {
+                addLine(y, cfg.strokeWidth, cfg.gridDashed && i > 0 && i < cfg.rowCount ? { strokeDashArray: [cfg.gridDashArray, cfg.gridDashArray] } : {});
               }
             }
 
-            gridLines.forEach((line) => {
-              canvas.add(line);
-              canvas.sendToBack(line);
+            gridLines.forEach((l) => {
+              canvas.add(l);
+              canvas.sendToBack(l);
             });
-
             canvas.requestRenderAll();
           },
 
           clearBackground: function () {
             App.canvas.setBackgroundImage(null, () => {
               App.canvas.requestRenderAll();
-
-              const btn = document.getElementById("bgClearBtn");
-              if (btn) btn.classList.add("hidden");
-
+              document.getElementById("bgClearBtn").classList.add("hidden");
               App.ui.updateLayerList();
-
               App.state.hasUnsavedChanges = true;
               App.history.saveState();
             });
           },
         },
 
-        // --- 缩放与视图管理 ---
+        // --- 缩放管理 ---
         zoom: {
-          // 执行缩放 (Point 参数用于以鼠标为中心缩放)
           change: function (delta, point) {
             const oldScale = App.state.zoom;
-            let newScale = Math.max(0.1, Math.min(4.0, oldScale + delta));
-
+            const newScale = Math.max(0.1, Math.min(4.0, oldScale + delta));
             if (newScale === oldScale) return;
 
             this.apply(newScale);
 
-            // 调整滚动条位置以保持视觉中心
             if (point) {
               const container = document.getElementById("scrollContainer");
-              const scaleFactor = newScale / oldScale;
-              const newScrollLeft = (container.scrollLeft + point.x) * scaleFactor - point.x;
-              const newScrollTop = (container.scrollTop + point.y) * scaleFactor - point.y;
-
-              container.scrollLeft = newScrollLeft;
-              container.scrollTop = newScrollTop;
+              const factor = newScale / oldScale;
+              container.scrollLeft = (container.scrollLeft + point.x) * factor - point.x;
+              container.scrollTop = (container.scrollTop + point.y) * factor - point.y;
             }
           },
 
-          // 自适应屏幕大小
           autoFit: function () {
             const container = document.getElementById("scrollContainer");
-            const padding = 60;
-            const availW = container.clientWidth - padding;
-            const availH = container.clientHeight - padding;
-
-            if (availW <= 0 || availH <= 0) return;
-
-            const scaleW = availW / App.state.baseWidth;
-            const scaleH = availH / App.state.baseHeight;
-
-            let scale = Math.min(scaleW, scaleH);
-            if (scale > 1.2) scale = 1.2;
+            const scale = Math.min(1.2, Math.min((container.clientWidth - 60) / App.state.baseWidth, (container.clientHeight - 60) / App.state.baseHeight));
 
             this.apply(scale);
-
-            // 延迟居中滚动
             setTimeout(() => {
-              const newW = App.state.baseWidth * scale;
-              const newH = App.state.baseHeight * scale;
-              container.scrollLeft = (newW - container.clientWidth) / 2 + padding / 2;
-              container.scrollTop = (newH - container.clientHeight) / 2 + padding / 2;
+              container.scrollLeft = (App.state.baseWidth * scale - container.clientWidth) / 2 + 30;
+              container.scrollTop = (App.state.baseHeight * scale - container.clientHeight) / 2 + 30;
             }, 0);
           },
 
@@ -1152,35 +1048,31 @@
             App.state.zoom = scale;
             const w = Math.round(App.state.baseWidth * scale);
             const h = Math.round(App.state.baseHeight * scale);
+            App.canvas.setDimensions({ width: w, height: h }).setZoom(scale);
 
-            App.canvas.setDimensions({ width: w, height: h });
-            App.canvas.setZoom(scale);
-
-            const viewport = document.getElementById("zoomViewport");
-            if (viewport) {
-              viewport.style.width = w + "px";
-              viewport.style.height = h + "px";
+            const vp = document.getElementById("zoomViewport");
+            if (vp) {
+              vp.style.width = w + "px";
+              vp.style.height = h + "px";
             }
-
             document.getElementById("zoomPercent").innerText = Math.round(scale * 100) + "%";
             App.canvas.requestRenderAll();
           },
         },
 
-        // --- 事件管理 ---
+        // --- 事件处理 ---
         events: {
           initCanvasEvents: function () {
             const container = document.getElementById("scrollContainer");
-            let isPanning = false;
             let startX = 0,
               startY = 0,
               scrollLeft = 0,
               scrollTop = 0;
-            let dragOrigin = null;
-            let isDragThresholdPassed = false;
-            const DRAG_THRESHOLD = 3;
+            let dragOrigin = null,
+              isDragThresholdPassed = false;
 
-            App.canvas.on("mouse:down", function (opt) {
+            // 1. 拖拽与平移
+            App.canvas.on("mouse:down", (opt) => {
               const target = opt.target;
               if (target && !opt.e.altKey && !target.isGrid) {
                 dragOrigin = { left: target.left, top: target.top };
@@ -1188,186 +1080,115 @@
               } else {
                 dragOrigin = null;
               }
-            });
 
-            // 在对象移动过程中拦截
-            App.canvas.on("object:moving", function (opt) {
-              const target = opt.target;
-              if (dragOrigin && !isDragThresholdPassed) {
-                // 计算位移偏差
-                const dx = Math.abs(target.left - dragOrigin.left);
-                const dy = Math.abs(target.top - dragOrigin.top);
-
-                // 如果移动距离小于阈值，强制锁死在原位
-                if (dx < DRAG_THRESHOLD && dy < DRAG_THRESHOLD) {
-                  target.set({ left: dragOrigin.left, top: dragOrigin.top });
-                  // 阻止后续逻辑（虽然 Fabric 事件不能完全阻止，但通过重置坐标可以视觉上“无效化”）
-                  return;
-                } else {
-                  // 一旦突破阈值，标记为通过，之后不再拦截，允许自由移动
-                  isDragThresholdPassed = true;
-                }
-              }
-            });
-
-            App.canvas.on("mouse:up", function () {
-              // 鼠标抬起，重置状态
-              dragOrigin = null;
-              isDragThresholdPassed = false;
-            });
-
-            // 画布平移与选框逻辑
-            App.canvas.on("mouse:down", function (opt) {
-              const evt = opt.e;
-              const target = opt.target;
-
-              // 当点击的是空白处或者网格背景时
               if (!target || target.isGrid) {
-                // 【修改点】：如果按住了 Alt 键 -> 启用拉框选择
-                if (evt.altKey === true) {
-                  isPanning = false; // 禁用自定义平移
-                  App.canvas.selection = true; // 启用 Fabric 自带的选框功能
+                if (opt.e.altKey) {
+                  App.state.isPanning = false;
+                  App.canvas.selection = true;
                   App.canvas.defaultCursor = "default";
-                  App.canvas.setCursor("default");
-                }
-                // 【修改点】：否则 (没按键) -> 启用拖拽平移画布
-                else {
-                  isPanning = true; // 标记开始平移
-                  App.canvas.selection = false; // 暂时禁用选框，防止拖拽时画出蓝色框
-
-                  // 记录平移起点
-                  startX = evt.clientX;
-                  startY = evt.clientY;
+                } else {
+                  App.state.isPanning = true;
+                  App.canvas.selection = false;
+                  startX = opt.e.clientX;
+                  startY = opt.e.clientY;
                   scrollLeft = container.scrollLeft;
                   scrollTop = container.scrollTop;
-
-                  // 改变光标样式
                   App.canvas.defaultCursor = "grabbing";
                   App.canvas.setCursor("grabbing");
                 }
               }
             });
 
+            App.canvas.on("object:moving", (opt) => {
+              if (dragOrigin && !isDragThresholdPassed) {
+                if (Math.abs(opt.target.left - dragOrigin.left) < 3 && Math.abs(opt.target.top - dragOrigin.top) < 3) {
+                  opt.target.set({ left: dragOrigin.left, top: dragOrigin.top });
+                } else {
+                  isDragThresholdPassed = true;
+                }
+              }
+            });
+
+            App.canvas.on("mouse:up", () => {
+              dragOrigin = null;
+              isDragThresholdPassed = false;
+              if (App.state.isPanning) {
+                App.state.isPanning = false;
+                App.canvas.selection = true;
+                App.canvas.defaultCursor = "default";
+              }
+            });
+
             document.addEventListener(
               "mousemove",
-              function (e) {
-                if (isPanning) {
+              (e) => {
+                if (App.state.isPanning) {
                   e.preventDefault();
                   container.scrollLeft = scrollLeft - (e.clientX - startX);
                   container.scrollTop = scrollTop - (e.clientY - startY);
-                  return;
-                }
-
-                if (App.canvas && App.canvas._currentTransform) {
+                } else if (App.canvas && App.canvas._currentTransform) {
                   e.preventDefault();
                 }
               },
               { passive: false }
             );
-
-            document.addEventListener("mouseup", function () {
-              if (isPanning) {
-                isPanning = false;
-                App.canvas.selection = true; // 平移结束后恢复允许选中
-                App.canvas.defaultCursor = "default";
-                App.canvas.setCursor("default");
-              }
-            });
 
             // 2. 滚轮缩放
             container.addEventListener(
               "wheel",
-              function (e) {
+              (e) => {
                 e.preventDefault();
                 e.stopPropagation();
                 const rect = container.getBoundingClientRect();
-                const mouseX = e.clientX - rect.left;
-                const mouseY = e.clientY - rect.top;
-                const delta = e.deltaY > 0 ? -0.1 : 0.1;
-                App.zoom.change(delta, { x: mouseX, y: mouseY });
+                App.zoom.change(e.deltaY > 0 ? -0.1 : 0.1, { x: e.clientX - rect.left, y: e.clientY - rect.top });
               },
               { passive: false }
             );
 
-            // 3. 选中队列维护 (用于多选对齐)
-            const updateQueue = (selected, deselected) => {
-              if (selected) {
-                selected.forEach((obj) => {
-                  if (!App.state.selectionQueue.includes(obj)) App.state.selectionQueue.push(obj);
-                });
-              }
-              if (deselected) {
-                deselected.forEach((obj) => {
-                  const idx = App.state.selectionQueue.indexOf(obj);
+            // 3. 选中与UI同步
+            const updateQueue = (sel, desel) => {
+              if (sel) sel.forEach((o) => !App.state.selectionQueue.includes(o) && App.state.selectionQueue.push(o));
+              if (desel)
+                desel.forEach((o) => {
+                  const idx = App.state.selectionQueue.indexOf(o);
                   if (idx > -1) App.state.selectionQueue.splice(idx, 1);
                 });
-              }
               App.ui.updateInspector();
             };
 
-            App.canvas.on("selection:created", (e) => updateQueue(e.selected, null));
-            App.canvas.on("selection:updated", (e) => updateQueue(e.selected, e.deselected));
-            App.canvas.on("selection:cleared", () => {
-              App.state.selectionQueue = [];
-              App.ui.updateInspector();
+            App.canvas.on({
+              "selection:created": (e) => updateQueue(e.selected, null),
+              "selection:updated": (e) => updateQueue(e.selected, e.deselected),
+              "selection:cleared": () => {
+                App.state.selectionQueue = [];
+                App.ui.updateInspector();
+              },
+              "object:modified": () => App.ui.updateInspector(),
             });
-            container.addEventListener("mousedown", function (e) {
-              // 检查点击的目标是否是容器本身，或者是 zoomViewport 的空白处
-              // 只有当点击的不是 canvas 元素（upper-canvas）时才取消选中
-              if (e.target.id === "scrollContainer" || e.target.id === "zoomViewport" || e.target.id === "canvasWrapper") {
-                App.canvas.discardActiveObject(); // 清除 Fabric 选中状态
-                App.canvas.requestRenderAll(); // 重绘
-                App.ui.updateInspector(); // 更新右侧面板状态
-              }
-            });
-            // 4. 对象修改监听
-            App.canvas.on("object:modified", () => App.ui.updateInspector());
 
+            // 4. 对象变换处理 (字体大小随缩放调整)
             const geoUpdate = (e) => {
-              const target = e.target;
-
-              if (["i-text", "textbox", "text"].includes(target.type)) {
-                if (Math.abs(target.scaleX - target.scaleY) < 0.01) {
-                  if (Math.abs(target.scaleX - 1) > 0.001) {
-                    const newFontSize = target.fontSize * target.scaleX;
-
-                    const updates = {
-                      fontSize: newFontSize,
-                      scaleX: 1,
-                      scaleY: 1,
-                    };
-
-                    if (target.type === "textbox") {
-                      updates.width = target.width * target.scaleX;
-                    }
-
-                    target.set(updates);
-
-                    // 4. 更新 UI 显示
-                    const propSizeInput = document.getElementById("propSize");
-                    if (propSizeInput) {
-                      propSizeInput.value = Utils.px2pt(newFontSize);
-                    }
-                  }
-                }
+              const t = e.target;
+              if (["i-text", "textbox", "text"].includes(t.type) && Math.abs(t.scaleX - t.scaleY) < 0.01 && Math.abs(t.scaleX - 1) > 0.001) {
+                const newSize = t.fontSize * t.scaleX;
+                t.set({ fontSize: newSize, scaleX: 1, scaleY: 1 });
+                if (t.type === "textbox") t.width *= t.scaleX;
+                const propSize = document.getElementById("propSize");
+                if (propSize) propSize.value = Utils.px2pt(newSize);
               }
-
-              // 更新几何属性面板 (坐标、宽高、旋转)
-              App.ui.updateGeo(null, null, target);
+              App.ui.updateGeo(null, null, t);
             };
 
-            // 下面这几行保持原样
-            App.canvas.on("object:moving", geoUpdate);
-            App.canvas.on("object:scaling", geoUpdate);
-            App.canvas.on("object:rotating", geoUpdate);
-            App.canvas.on("object:resizing", geoUpdate);
+            App.canvas.on({ "object:moving": geoUpdate, "object:scaling": geoUpdate, "object:rotating": geoUpdate, "object:resizing": geoUpdate });
 
-            App.canvas.on("object:moving", geoUpdate);
-            App.canvas.on("object:scaling", geoUpdate);
-            App.canvas.on("object:rotating", geoUpdate);
-            App.canvas.on("object:resizing", geoUpdate);
+            container.addEventListener("mousedown", (e) => {
+              if (["scrollContainer", "zoomViewport", "canvasWrapper"].includes(e.target.id)) {
+                App.canvas.discardActiveObject();
+                App.canvas.requestRenderAll();
+                App.ui.updateInspector();
+              }
+            });
 
-            // 窗口调整事件
             window.addEventListener(
               "resize",
               Utils.throttle(() => App.zoom.autoFit(), 200)
@@ -1375,64 +1196,37 @@
           },
         },
 
-        // 辅助：加载系统字体
+        // --- 本地字体加载 ---
         loadLocalFonts: async function () {
-          if (!("queryLocalFonts" in window)) {
-            return;
-          }
-
-          if (App.state.localFontsLoaded) return;
-
+          if (App.state.localFontsLoaded || !window.queryLocalFonts) return;
           try {
             App.state.localFontsLoaded = true;
-
-            const fonts = await window.queryLocalFonts();
-
+            const fonts = (await window.queryLocalFonts()).sort((a, b) => a.family.localeCompare(b.family));
             const select = document.getElementById("propFont");
-            const seen = new Set();
-            for (let i = 0; i < select.options.length; i++) {
-              seen.add(select.options[i].value);
-            }
+            const seen = new Set([...select.options].map((o) => o.value));
 
-            const sorted = fonts.sort((a, b) => a.family.localeCompare(b.family));
-
-            if (!seen.has("---sep---")) {
-              const sep = document.createElement("option");
-              sep.disabled = true;
-              sep.text = "--- 本地字体 ---";
-              sep.value = "---sep---";
-              select.add(sep);
-              seen.add("---sep---");
-            }
+            if (!seen.has("---sep---")) select.add(new Option("--- 本地字体 ---", "---sep---", true, true));
 
             let count = 0;
-            for (const f of sorted) {
+            for (const f of fonts) {
               if (!seen.has(f.family)) {
                 seen.add(f.family);
-                const opt = document.createElement("option");
-                opt.value = f.family;
-                opt.text = f.fullName;
-                opt.style.fontFamily = f.family; // 让下拉框里直接显示字体样式
+                const opt = new Option(f.fullName, f.family);
+                opt.style.fontFamily = f.family;
                 select.add(opt);
                 count++;
               }
             }
-
-            if (count > 0) Utils.toast(`已加载 ${count} 款本地字体`);
+            if (count) Utils.toast(`已加载 ${count} 款本地字体`);
           } catch (e) {
-            console.warn("Local font access denied or error", e);
+            console.warn("Font Access Error", e);
             App.state.localFontsLoaded = false;
           }
         },
 
-        // --- 4. 工具集 (创建与编辑) ---
+        // --- 工具集 ---
         tools: {
-          _getCenter: function () {
-            return {
-              left: App.state.baseWidth / 2,
-              top: App.state.baseHeight / 2,
-            };
-          },
+          _getCenter: () => ({ left: App.state.baseWidth / 2, top: App.state.baseHeight / 2 }),
 
           _addToCanvas: function (obj) {
             App.canvas.add(obj);
@@ -1443,1280 +1237,871 @@
           },
 
           addText: function () {
-            const t = new fabric.IText("点击编辑文本", {
-              ...this._getCenter(),
-              fontSize: Utils.pt2px(14),
-              fontFamily: "SimSun",
-              fill: App.paper.getSettings().gridColor,
-              originX: "center",
-              originY: "center",
-            });
-            this._addToCanvas(t);
+            this._addToCanvas(
+              new fabric.IText("点击编辑文本", {
+                ...this._getCenter(),
+                fontSize: Utils.pt2px(14),
+                fontFamily: "SimSun",
+                fill: App.paper.getSettings().gridColor,
+                originX: "center",
+                originY: "center",
+              })
+            );
           },
 
           addParagraph: function () {
-            const w = App.state.baseWidth - Utils.mm2px(50);
-            const t = new fabric.Textbox("在此输入段落文本...\n支持自动换行。", {
-              ...this._getCenter(),
-              width: w,
-              fontSize: Utils.pt2px(12),
-              fontFamily: "FangSong",
-              fill: "#333333",
-              splitByGrapheme: true,
-              originX: "center",
-              originY: "center",
-            });
-            this._addToCanvas(t);
+            this._addToCanvas(
+              new fabric.Textbox("在此输入段落文本...\n支持自动换行。", {
+                ...this._getCenter(),
+                width: App.state.baseWidth - Utils.mm2px(50),
+                fontSize: Utils.pt2px(12),
+                fontFamily: "FangSong",
+                fill: "#333",
+                splitByGrapheme: true,
+                originX: "center",
+                originY: "center",
+              })
+            );
           },
 
           addDate: function () {
             const cfg = App.paper.getSettings();
-            const t = new fabric.IText("____年__月__日", {
-              left: App.state.baseWidth - cfg.marginRight,
-              top: cfg.marginTop - 35,
-              fontSize: Utils.pt2px(14),
-              fontFamily: "KaiTi",
-              fill: cfg.gridColor,
-              originX: "right",
-            });
-            this._addToCanvas(t);
+            this._addToCanvas(
+              new fabric.IText("____年__月__日", {
+                left: App.state.baseWidth - cfg.marginRight,
+                top: cfg.marginTop - 35,
+                fontSize: Utils.pt2px(14),
+                fontFamily: "KaiTi",
+                fill: cfg.gridColor,
+                originX: "right",
+              })
+            );
           },
 
           addPageNum: function () {
-            const t = new fabric.IText("第   页", {
-              left: App.state.baseWidth / 2,
-              top: App.state.baseHeight - Utils.mm2px(20),
-              fontSize: Utils.pt2px(12),
-              fontFamily: "SimSun",
-              fill: App.paper.getSettings().gridColor,
-              originX: "center",
-              originY: "center",
-            });
-            this._addToCanvas(t);
+            this._addToCanvas(
+              new fabric.IText("第   页", {
+                left: App.state.baseWidth / 2,
+                top: App.state.baseHeight - Utils.mm2px(20),
+                fontSize: Utils.pt2px(12),
+                fontFamily: "SimSun",
+                fill: App.paper.getSettings().gridColor,
+                originX: "center",
+                originY: "center",
+              })
+            );
           },
 
           addLine: function () {
             const cfg = App.paper.getSettings();
-            const contentWidth = App.state.baseWidth - cfg.marginLeft - cfg.marginRight;
-            const l = new fabric.Line([0, 0, contentWidth, 0], {
-              ...this._getCenter(),
-              stroke: cfg.gridColor,
-              strokeWidth: 2,
-              originX: "center",
-              originY: "center",
-            });
-
-            this._addToCanvas(l);
+            this._addToCanvas(
+              new fabric.Line([0, 0, App.state.baseWidth - cfg.marginLeft - cfg.marginRight, 0], {
+                ...this._getCenter(),
+                stroke: cfg.gridColor,
+                strokeWidth: 2,
+                originX: "center",
+                originY: "center",
+              })
+            );
           },
 
           addShape: function (type) {
+            const comm = { ...this._getCenter(), fill: App.paper.getSettings().gridColor, strokeWidth: 0, originX: "center", originY: "center" };
             let obj;
-            const themeColor = App.paper.getSettings().gridColor;
-            const common = {
-              ...this._getCenter(),
-              fill: themeColor,
-              stroke: null,
-              strokeWidth: 0,
-              originX: "center",
-              originY: "center",
-            };
-
-            if (type === "rect") obj = new fabric.Rect({ ...common, width: 100, height: 100 });
-            else if (type === "circle") obj = new fabric.Circle({ ...common, radius: 50 });
-            else if (type === "triangle") obj = new fabric.Triangle({ ...common, width: 100, height: 100 });
+            if (type === "rect") obj = new fabric.Rect({ ...comm, width: 100, height: 100 });
+            else if (type === "circle") obj = new fabric.Circle({ ...comm, radius: 50 });
+            else if (type === "triangle") obj = new fabric.Triangle({ ...comm, width: 100, height: 100 });
             else if (type === "star") {
-              const points = [];
-              const spikes = 5,
-                outerRadius = 50,
-                innerRadius = outerRadius * 0.382;
-              for (let i = 0; i < spikes * 2; i++) {
-                const r = i % 2 === 0 ? outerRadius : innerRadius;
-                const angle = (Math.PI * i) / spikes - Math.PI / 2;
-                points.push({ x: Math.cos(angle) * r, y: Math.sin(angle) * r });
+              const pts = [];
+              for (let i = 0; i < 10; i++) {
+                const r = i % 2 === 0 ? 50 : 19.1;
+                const a = (Math.PI * i) / 5 - Math.PI / 2;
+                pts.push({ x: Math.cos(a) * r, y: Math.sin(a) * r });
               }
-              obj = new fabric.Polygon(points, { ...common, fill: themeColor, stroke: "transparent" });
+              obj = new fabric.Polygon(pts, { ...comm, fill: comm.fill });
             }
             if (obj) this._addToCanvas(obj);
           },
 
           handleImageUpload: function (input) {
-            if (input.files && input.files[0]) {
+            if (input.files?.[0]) {
               const reader = new FileReader();
-              reader.onload = (e) => {
+              reader.onload = (e) =>
                 fabric.Image.fromURL(e.target.result, (img) => {
                   img.scaleToWidth(Utils.mm2px(50));
-                  img.set({ ...this._getCenter(), originX: "center", originY: "center", stroke: null, strokeWidth: 0 });
+                  img.set({ ...this._getCenter(), originX: "center", originY: "center" });
                   this._addToCanvas(img);
                   input.value = "";
                 });
-              };
               reader.readAsDataURL(input.files[0]);
             }
           },
-          replaceActiveImage: function (input) {
-            const active = App.canvas.getActiveObject();
-            if (!active || active.type !== "image" || !input.files || !input.files[0]) return;
 
+          replaceActiveImage: function (input) {
+            const act = App.canvas.getActiveObject();
+            if (!act || act.type !== "image" || !input.files?.[0]) return;
             const reader = new FileReader();
-            reader.onload = (e) => {
-              const imgObj = new Image();
-              imgObj.src = e.target.result;
-              imgObj.onload = function () {
-                // 设置新的图片源
-                active.setSrc(e.target.result, () => {
-                  App.canvas.renderAll();
-                  App.ui.updateLayerList();
-                  App.history.saveState();
-                  Utils.toast("图片已替换");
-                });
-              };
-            };
+            reader.onload = (e) =>
+              act.setSrc(e.target.result, () => {
+                App.canvas.renderAll();
+                App.ui.updateLayerList();
+                App.history.saveState();
+                Utils.toast("图片已替换");
+              });
             reader.readAsDataURL(input.files[0]);
-            input.value = ""; // 重置 input 防止重复选择不触发
+            input.value = "";
           },
 
           setAsBackground: function () {
-            const active = App.canvas.getActiveObject();
-
-            if (active && active.type === "image") {
-              const bgOptions = {
-                originX: active.originX,
-                originY: active.originY,
-                left: active.left,
-                top: active.top,
-                scaleX: active.scaleX,
-                scaleY: active.scaleY,
-                angle: active.angle,
-                opacity: active.opacity,
-              };
-
+            const act = App.canvas.getActiveObject();
+            if (act && act.type === "image") {
               App.canvas.setBackgroundImage(
-                active,
+                act,
                 () => {
-                  App.canvas.remove(active);
+                  App.canvas.remove(act);
                   App.canvas.requestRenderAll();
-
-                  const btn = document.getElementById("bgClearBtn");
-                  if (btn) btn.classList.remove("hidden");
-
+                  document.getElementById("bgClearBtn").classList.remove("hidden");
                   App.ui.updateLayerList();
-
                   App.state.hasUnsavedChanges = true;
                   App.history.saveState();
                   Utils.toast("已设为背景");
                 },
-                bgOptions
+                { ...act.toObject(["originX", "originY", "left", "top", "scaleX", "scaleY", "angle", "opacity"]) }
               );
-            } else {
-              Utils.toast("请先选中一张图片", "error");
-            }
+            } else Utils.toast("请先选中一张图片", "error");
           },
 
           deleteActive: function () {
-            const active = App.canvas.getActiveObject();
-            if (!active) return;
-
-            if (active.type === "activeSelection") {
-              active.forEachObject((o) => App.canvas.remove(o));
-              App.canvas.discardActiveObject();
-            } else {
-              App.canvas.remove(active);
-            }
+            const act = App.canvas.getActiveObject();
+            if (!act) return;
+            if (act.type === "activeSelection") act.forEachObject((o) => App.canvas.remove(o));
+            else App.canvas.remove(act);
+            App.canvas.discardActiveObject();
             App.ui.updateLayerList();
             App.ui.updateInspector();
             App.history.saveState();
           },
 
-          // 键盘微调移动
           nudge: function (dir) {
-            const active = App.canvas.getActiveObject();
-            if (!active) return;
-            const step = 2; // 每次移动像素数
-            if (dir === "up") active.top -= step;
-            if (dir === "down") active.top += step;
-            if (dir === "left") active.left -= step;
-            if (dir === "right") active.left += step;
-            active.setCoords();
+            const act = App.canvas.getActiveObject();
+            if (!act) return;
+            if (dir === "up") act.top -= 2;
+            else if (dir === "down") act.top += 2;
+            if (dir === "left") act.left -= 2;
+            else if (dir === "right") act.left += 2;
+            act.setCoords();
             App.canvas.requestRenderAll();
-            App.ui.updateGeo(null, null, active);
+            App.ui.updateGeo(null, null, act);
           },
+
           updateSmartCorner: function (key, value) {
-            const active = App.canvas.getActiveObject();
-            if (!active) return;
+            const act = App.canvas.getActiveObject();
+            if (!act || (act.type !== "rect" && !act.isSmartRect)) return;
 
-            if (active.type !== "rect" && !active.isSmartRect) return;
-
-            let config = active.cornerConfig || { tl: 0, tr: 0, bl: 0, br: 0, style: "round" };
-
-            value = key === "style" ? value : parseInt(value) || 0;
-
+            let cfg = act.cornerConfig || { tl: 0, tr: 0, bl: 0, br: 0, style: "round" };
             if (key === "all") {
-              config.tl = config.tr = config.bl = config.br = value;
-              ["tl", "tr", "bl", "br"].forEach((k) => {
-                const el = document.getElementById("corner" + k.toUpperCase());
-                if (el) el.value = value;
-              });
-              document.getElementById("masterRadiusVal").innerText = value;
-            } else if (key === "style") {
-              config.style = value;
-            } else {
-              config[key] = value;
-            }
+              const v = parseInt(value) || 0;
+              cfg.tl = cfg.tr = cfg.bl = cfg.br = v;
+              ["tl", "tr", "bl", "br"].forEach((k) => (document.getElementById("corner" + k.toUpperCase()).value = v));
+              document.getElementById("masterRadiusVal").innerText = v;
+            } else if (key === "style") cfg.style = value;
+            else cfg[key] = parseInt(value) || 0;
 
-            const w = active.getScaledWidth();
-            const h = active.getScaledHeight();
-
-            const pathData = Utils.generateSmartRectPath(w, h, config, config.style);
-
-            const newObj = new fabric.Path(pathData, {
-              left: active.left,
-              top: active.top,
-              fill: active.fill,
-              stroke: active.stroke,
-              strokeWidth: active.strokeWidth,
-              opacity: active.opacity,
-              angle: active.angle,
+            const newObj = new fabric.Path(Utils.generateSmartRectPath(act.getScaledWidth(), act.getScaledHeight(), cfg, cfg.style), {
+              ...act.toObject(["left", "top", "fill", "stroke", "strokeWidth", "opacity", "angle", "originX", "originY"]),
               scaleX: 1,
               scaleY: 1,
-              originX: active.originX,
-              originY: active.originY,
               isSmartRect: true,
-              cornerConfig: config,
-              transparentCorners: false,
-              cornerColor: "white",
-              cornerStrokeColor: "#3b82f6",
-              borderColor: "#3b82f6",
-              borderScaleFactor: 1.5,
+              cornerConfig: cfg,
             });
 
-            // 保持层级位置
-            const index = App.canvas.getObjects().indexOf(active);
-
-            App.canvas.discardActiveObject();
-            App.canvas.remove(active);
-            App.canvas.insertAt(newObj, index, true); // true 表示不重新渲染，稍后统一渲染
-            App.canvas.setActiveObject(newObj);
-            App.canvas.requestRenderAll();
+            const idx = App.canvas.getObjects().indexOf(act);
+            App.canvas.discardActiveObject().remove(act).insertAt(newObj, idx, true).setActiveObject(newObj).requestRenderAll();
             App.ui.updateInspector();
             App.history.saveState();
           },
+
           flip: function (dir) {
-            const active = App.canvas.getActiveObject();
-            if (!active) return;
-
-            if (active.type === "activeSelection") {
-              const group = active.toGroup();
-              if (dir === "x") group.set("flipX", !group.flipX);
-              else if (dir === "y") group.set("flipY", !group.flipY);
-              const newSelection = group.toActiveSelection();
-              App.canvas.setActiveObject(newSelection);
+            const act = App.canvas.getActiveObject();
+            if (!act) return;
+            const prop = dir === "x" ? "flipX" : "flipY";
+            if (act.type === "activeSelection") {
+              const grp = act.toGroup();
+              grp.set(prop, !grp[prop]);
+              App.canvas.setActiveObject(grp.toActiveSelection());
             } else {
-              if (dir === "x") active.set("flipX", !active.flipX);
-              else if (dir === "y") active.set("flipY", !active.flipY);
+              act.set(prop, !act[prop]);
             }
-
             App.canvas.requestRenderAll();
-
-            App.ui.updateInspector();
-
             App.history.saveState();
           },
         },
 
-        // --- 5. UI 管理 (属性面板与图层) ---
+        // --- UI 管理 ---
         ui: {
-          // 更新几何属性
           updateGeo: function (key, val, targetObj = null) {
-            const active = targetObj || App.canvas.getActiveObject();
-            if (!active) return;
+            const act = targetObj || App.canvas.getActiveObject();
+            if (!act) return;
 
-            // A. 读取属性到 Input (Canvas像素 -> UI毫米)
             if (val === undefined || val === null) {
-              const p = active.getPointByOrigin("left", "top"); // 获取左上角绝对坐标(px)
-
-              // 转换: px -> mm，并保留1位小数
+              const p = act.getPointByOrigin("left", "top");
               document.getElementById("propX").value = Utils.px2mm(p.x).toFixed(1);
               document.getElementById("propY").value = Utils.px2mm(p.y).toFixed(1);
-
-              // 角度不需要转换
-              document.getElementById("propAngle").value = Math.round(active.angle);
-
-              // 转换: px -> mm，保留1位小数
-              document.getElementById("propW").value = Utils.px2mm(active.getScaledWidth()).toFixed(1);
-              document.getElementById("propH").value = Utils.px2mm(active.getScaledHeight()).toFixed(1);
-              return;
-            }
-
-            // B. 从 Input 更新属性 (UI毫米 -> Canvas像素)
-            const numVal = parseFloat(val);
-            if (isNaN(numVal)) return;
-
-            if (key === "angle") {
-              // 角度直接设置
-              active.set("angle", numVal);
+              document.getElementById("propAngle").value = Math.round(act.angle);
+              document.getElementById("propW").value = Utils.px2mm(act.getScaledWidth()).toFixed(1);
+              document.getElementById("propH").value = Utils.px2mm(act.getScaledHeight()).toFixed(1);
             } else {
-              // 距离/尺寸需要转换: mm -> px
-              const pxVal = Utils.mm2px(numVal);
+              const numVal = parseFloat(val);
+              if (isNaN(numVal)) return;
 
-              if (key === "left" || key === "top") {
-                // 获取当前UI上的毫米值，转为像素
-                let currentLeftMm = parseFloat(document.getElementById("propX").value);
-                let currentTopMm = parseFloat(document.getElementById("propY").value);
-
-                // 如果当前修改的是 left，用新的输入值；否则用旧值
-                let finalLeftPx = key === "left" ? pxVal : Utils.mm2px(currentLeftMm);
-                let finalTopPx = key === "top" ? pxVal : Utils.mm2px(currentTopMm);
-
-                // 移动对象
-                active.setPositionByOrigin(new fabric.Point(finalLeftPx, finalTopPx), "left", "top");
-              } else if (key === "width") {
-                // 宽度处理
-                if (active.type === "textbox") {
-                  active.set("width", pxVal);
-                } else {
-                  // 对于普通形状/图片，通过 scaleX 改变宽度
-                  // scaleX = 目标像素宽 / 原始像素宽
-                  active.set("scaleX", pxVal / active.width);
-                }
-              } else if (key === "height") {
-                // 高度处理
-                // scaleY = 目标像素高 / 原始像素高
-                active.set("scaleY", pxVal / active.height);
-              }
-            }
-
-            active.setCoords();
-            App.canvas.requestRenderAll();
-            App.history.saveState();
-          },
-
-          // 设置对象属性 (支持多选)
-          setProp: function (key, val) {
-            const active = App.canvas.getActiveObject();
-            if (active) {
-              if (active.type === "activeSelection") {
-                active.forEachObject((o) => o.set(key, val));
+              if (key === "angle") {
+                act.set("angle", numVal);
               } else {
-                active.set(key, val);
+                const pxVal = Utils.mm2px(numVal);
+                if (key === "left" || key === "top") {
+                  let cx = parseFloat(document.getElementById("propX").value);
+                  let cy = parseFloat(document.getElementById("propY").value);
+                  act.setPositionByOrigin(new fabric.Point(Utils.mm2px(key === "left" ? numVal : cx), Utils.mm2px(key === "top" ? numVal : cy)), "left", "top");
+                } else if (key === "width") {
+                  act.type === "textbox" ? act.set("width", pxVal) : act.set("scaleX", pxVal / act.width);
+                } else if (key === "height") {
+                  act.set("scaleY", pxVal / act.height);
+                }
               }
+              act.setCoords();
               App.canvas.requestRenderAll();
               App.history.saveState();
             }
           },
-          updateLineDash: function () {
-            const active = App.canvas.getActiveObject();
-            if (!active || active.type !== "line") return;
 
-            const isDashed = document.getElementById("lineDashCheck").checked;
-            const val = parseInt(document.getElementById("lineDashVal").value) || 5;
-
-            if (isDashed) {
-              // 设置虚线数组 [实线长度, 间隔长度]
-              active.set("strokeDashArray", [val, val]);
-            } else {
-              active.set("strokeDashArray", null);
+          setProp: function (key, val) {
+            const act = App.canvas.getActiveObject();
+            if (act) {
+              act.type === "activeSelection" ? act.forEachObject((o) => o.set(key, val)) : act.set(key, val);
+              App.canvas.requestRenderAll();
+              App.history.saveState();
             }
+          },
 
+          updateLineDash: function () {
+            const act = App.canvas.getActiveObject();
+            if (!act || act.type !== "line") return;
+            const v = parseInt(document.getElementById("lineDashVal").value) || 5;
+            act.set("strokeDashArray", document.getElementById("lineDashCheck").checked ? [v, v] : null);
             App.canvas.requestRenderAll();
             App.history.saveState();
           },
+
           toggleStyle: function (style) {
-            const active = App.canvas.getActiveObject();
-            if (!active) return;
-            if (style === "bold") active.set("fontWeight", active.fontWeight === "bold" ? "normal" : "bold");
-            else if (style === "italic") active.set("fontStyle", active.fontStyle === "italic" ? "normal" : "italic");
-            else if (style === "underline") active.set("underline", !active.underline);
+            const act = App.canvas.getActiveObject();
+            if (!act) return;
+            if (style === "bold") act.set("fontWeight", act.fontWeight === "bold" ? "normal" : "bold");
+            else if (style === "italic") act.set("fontStyle", act.fontStyle === "italic" ? "normal" : "italic");
+            else if (style === "underline") act.set("underline", !act.underline);
             App.canvas.requestRenderAll();
             this.updateInspector();
             App.history.saveState();
           },
 
-          // 更新右侧属性面板显隐
           updateInspector: function () {
-            const active = App.canvas.getActiveObject();
-            const els = {
-              none: document.getElementById("noSelection"),
-              controls: document.getElementById("selectionControls"),
-              text: document.getElementById("textProps"),
-              img: document.getElementById("imgProps"),
-              line: document.getElementById("lineProps"),
-              shape: document.getElementById("shapeProps"),
-              align: document.getElementById("alignTools"),
-              fineTune: document.getElementById("fineTuneTools"),
-            };
+            const act = App.canvas.getActiveObject();
+            const ids = ["textProps", "imgProps", "lineProps", "shapeProps", "alignTools", "rectCornerControl", "selectionControls"];
+            const els = {};
+            ids.forEach((id) => {
+              els[id] = document.getElementById(id);
+              els[id]?.classList.add("hidden");
+            });
+            document.getElementById("noSelection").classList.toggle("hidden", !!act);
 
-            // 重置
-            els.none.classList.remove("hidden");
-            els.controls.classList.add("hidden");
-            [els.text, els.img, els.line, els.shape, els.align].forEach((e) => e.classList.add("hidden"));
-
-            if (!active) {
+            if (!act) {
               this.updateLayerList();
               return;
             }
 
-            els.none.classList.add("hidden");
-            els.controls.classList.remove("hidden");
+            els.selectionControls.classList.remove("hidden");
+            this.updateGeo(null, null, act);
+            document.getElementById("propOpacity").value = act.opacity || 1;
+            document.getElementById("opacityVal").innerText = Math.round((act.opacity || 1) * 100) + "%";
 
-            // 更新通用数据
-            this.updateGeo(null, null, active);
-            document.getElementById("propOpacity").value = active.opacity || 1;
-            document.getElementById("opacityVal").innerText = Math.round((active.opacity || 1) * 100) + "%";
+            if (act.type === "activeSelection") els.alignTools.classList.remove("hidden");
+            else if (["i-text", "textbox", "text"].includes(act.type)) {
+              els.textProps.classList.remove("hidden");
+              document.getElementById("propFont").value = act.fontFamily;
+              document.getElementById("propSize").value = Utils.px2pt(act.fontSize);
+              document.getElementById("propColor").value = act.fill;
+              document.getElementById("propLineHeight").value = act.lineHeight || 1.2;
+              document.getElementById("propCharSpacing").value = act.charSpacing || 0;
+              document.getElementById("btnBold").classList.toggle("active", act.fontWeight === "bold");
+              document.getElementById("btnItalic").classList.toggle("active", act.fontStyle === "italic");
+              document.getElementById("btnUnderline").classList.toggle("active", !!act.underline);
+            } else if (act.type === "image") {
+              els.imgProps.classList.remove("hidden");
+            } else if (act.type === "line") {
+              els.lineProps.classList.remove("hidden");
+              document.getElementById("lineColor").value = act.stroke;
+              document.getElementById("lineStrokeWidth").value = act.strokeWidth;
+              const dash = act.strokeDashArray;
+              document.getElementById("lineDashCheck").checked = !!(dash && dash.length);
+              document.getElementById("lineDashVal").value = (dash && dash[0]) || 5;
+            } else if (["rect", "circle", "triangle", "polygon", "path"].includes(act.type)) {
+              els.shapeProps.classList.remove("hidden");
+              document.getElementById("shapeFill").value = act.fill === "transparent" ? "#ffffff" : act.fill;
+              document.getElementById("shapeStroke").value = act.stroke || "#000000";
+              document.getElementById("shapeStrokeWidth").value = act.strokeWidth || 0;
 
-            // 根据类型显示面板
-            if (active.type === "activeSelection") {
-              els.align.classList.remove("hidden");
-              els.fineTune.classList.remove("hidden");
-            } else {
-              els.fineTune.classList.remove("hidden");
-
-              if (["i-text", "textbox", "text"].includes(active.type)) {
-                els.text.classList.remove("hidden");
-                document.getElementById("propFont").value = active.fontFamily;
-                document.getElementById("propSize").value = Utils.px2pt(active.fontSize);
-                document.getElementById("propColor").value = active.fill;
-                document.getElementById("propLineHeight").value = active.lineHeight || 1.2;
-                document.getElementById("propCharSpacing").value = active.charSpacing || 0;
-                document.getElementById("btnBold").classList.toggle("active", active.fontWeight === "bold");
-                document.getElementById("btnItalic").classList.toggle("active", active.fontStyle === "italic");
-                document.getElementById("btnUnderline").classList.toggle("active", !!active.underline);
-              } else if (active.type === "image") {
-                els.img.classList.remove("hidden");
-              } else if (active.type === "line") {
-                els.line.classList.remove("hidden");
-                document.getElementById("lineColor").value = active.stroke;
-                document.getElementById("lineStrokeWidth").value = active.strokeWidth;
-
-                const dashArray = active.strokeDashArray;
-                const isDashed = dashArray && dashArray.length > 0;
-                document.getElementById("lineDashCheck").checked = isDashed;
-                document.getElementById("lineDashVal").value = isDashed ? dashArray[0] : 5;
-              } else if (["rect", "circle", "triangle", "polygon", "path"].includes(active.type)) {
-                els.shape.classList.remove("hidden");
-                document.getElementById("shapeFill").value = active.fill === "transparent" ? "#ffffff" : active.fill;
-                document.getElementById("shapeStroke").value = active.stroke || "#000000";
-                document.getElementById("shapeStrokeWidth").value = active.strokeWidth || 0;
-
-                const cornerControl = document.getElementById("rectCornerControl");
-
-                // 判断：是普通矩形 或者是 我们转换过的 SmartRect
-                if (active.type === "rect" || active.isSmartRect) {
-                  cornerControl.classList.remove("hidden");
-
-                  // 获取配置，如果没有则从 rx 读取 (兼容普通 Rect)
-                  const conf = active.cornerConfig || {
-                    tl: active.rx || 0,
-                    tr: active.rx || 0,
-                    bl: active.rx || 0,
-                    br: active.rx || 0,
-                    style: "round",
-                  };
-
-                  // 填充 UI
-                  document.getElementById("cornerStyle").value = conf.style;
-                  document.getElementById("cornerTL").value = conf.tl;
-                  document.getElementById("cornerTR").value = conf.tr;
-                  document.getElementById("cornerBL").value = conf.bl;
-                  document.getElementById("cornerBR").value = conf.br;
-
-                  // 如果四个角相等，更新滑块，否则滑块归零或显示特定状态
-                  if (conf.tl === conf.tr && conf.tr === conf.bl && conf.bl === conf.br) {
-                    document.getElementById("masterRadius").value = conf.tl;
-                    document.getElementById("masterRadiusVal").innerText = conf.tl;
-                  }
-                } else {
-                  cornerControl.classList.add("hidden");
+              if (act.type === "rect" || act.isSmartRect) {
+                els.rectCornerControl.classList.remove("hidden");
+                const conf = act.cornerConfig || { tl: act.rx || 0, tr: act.rx || 0, bl: act.rx || 0, br: act.rx || 0, style: "round" };
+                document.getElementById("cornerStyle").value = conf.style;
+                ["tl", "tr", "bl", "br"].forEach((k) => (document.getElementById("corner" + k.toUpperCase()).value = conf[k]));
+                if (conf.tl === conf.tr && conf.tr === conf.bl && conf.bl === conf.br) {
+                  document.getElementById("masterRadius").value = conf.tl;
+                  document.getElementById("masterRadiusVal").innerText = conf.tl;
                 }
               }
             }
             this.updateLayerList();
           },
-          showLoading: function (msg = "加载中...") {
-            const el = document.getElementById("loadingOverlay");
-            if (el) {
-              el.querySelector("p").innerText = msg;
-              el.classList.remove("hidden");
-            }
-          },
 
-          hideLoading: function () {
-            const el = document.getElementById("loadingOverlay");
-            if (el) el.classList.add("hidden");
-          },
-          // 绝对对齐 (相对于画布)
-          alignObject: function (mode) {
-            const active = App.canvas.getActiveObject();
-            if (!active) return;
-
-            const cfg = App.paper.getSettings();
-            const contentW = App.state.baseWidth - cfg.marginLeft - cfg.marginRight;
-            const centerX = cfg.marginLeft + contentW / 2;
-
-            if (mode === "centerH") active.set({ left: centerX, originX: "center" });
-            else if (mode === "left") active.set({ left: cfg.marginLeft, originX: "left" });
-            else if (mode === "right") active.set({ left: App.state.baseWidth - cfg.marginRight, originX: "right" });
-
-            active.setCoords();
-            App.canvas.requestRenderAll();
-            this.updateGeo(null, null, active);
-            App.history.saveState();
-          },
-
-          // 多选对齐 (以首个选中对象为基准)
-          align: function (mode) {
-            if (App.state.selectionQueue.length < 2) return;
-
-            const queue = [...App.state.selectionQueue];
-            const anchor = queue[0]; // 基准对象
-
-            // 暂时解散组以计算绝对坐标
-            App.canvas.discardActiveObject();
-            queue.forEach((obj) => obj.setCoords());
-
-            const anchorRect = anchor.getBoundingRect(true);
-
-            queue.forEach((obj) => {
-              if (obj === anchor) return;
-              const objRect = obj.getBoundingRect(true);
-              let dx = 0,
-                dy = 0;
-
-              switch (mode) {
-                case "left":
-                  dx = anchorRect.left - objRect.left;
-                  break;
-                case "center":
-                  dx = anchorRect.left + anchorRect.width / 2 - (objRect.left + objRect.width / 2);
-                  break;
-                case "right":
-                  dx = anchorRect.left + anchorRect.width - (objRect.left + objRect.width);
-                  break;
-                case "top":
-                  dy = anchorRect.top - objRect.top;
-                  break;
-                case "middle":
-                  dy = anchorRect.top + anchorRect.height / 2 - (objRect.top + objRect.height / 2);
-                  break;
-                case "bottom":
-                  dy = anchorRect.top + anchorRect.height - (objRect.top + objRect.height);
-                  break;
-              }
-
-              if (dx !== 0) obj.set("left", obj.left + dx);
-              if (dy !== 0) obj.set("top", obj.top + dy);
-              obj.setCoords();
-            });
-
-            // 恢复选中组
-            const newSelection = new fabric.ActiveSelection(queue, { canvas: App.canvas });
-            App.canvas.setActiveObject(newSelection);
-            App.canvas.requestRenderAll();
-            App.history.saveState();
-          },
-          // 平均分布 (按对象中心点分布)
-          distribute: function (mode) {
-            const active = App.canvas.getActiveObject();
-            if (!active || active.type !== "activeSelection") {
-              Utils.toast("请至少选择3个元素", "info");
-              return;
-            }
-
-            const objs = active.getObjects();
-            if (objs.length < 3) {
-              Utils.toast("分布至少需要3个元素", "info");
-              return;
-            }
-
-            App.canvas.discardActiveObject();
-
-            if (mode === "horizontal") {
-              objs.sort((a, b) => a.left - b.left);
-
-              const first = objs[0];
-              const last = objs[objs.length - 1];
-
-              const minCenter = first.getCenterPoint().x;
-              const maxCenter = last.getCenterPoint().x;
-              const totalDistance = maxCenter - minCenter;
-              const step = totalDistance / (objs.length - 1);
-
-              // 重新计算中间元素的位置
-              objs.forEach((obj, index) => {
-                if (index === 0 || index === objs.length - 1) return; // 首尾不动
-
-                const targetCenterX = minCenter + step * index;
-                const currentCenter = obj.getCenterPoint();
-                // 计算位移增量
-                const deltaX = targetCenterX - currentCenter.x;
-
-                obj.set("left", obj.left + deltaX);
-                obj.setCoords();
-              });
-            } else if (mode === "vertical") {
-              // 按 top 从小到大排序
-              objs.sort((a, b) => a.top - b.top);
-
-              const first = objs[0];
-              const last = objs[objs.length - 1];
-
-              const minCenter = first.getCenterPoint().y;
-              const maxCenter = last.getCenterPoint().y;
-              const totalDistance = maxCenter - minCenter;
-              const step = totalDistance / (objs.length - 1);
-
-              objs.forEach((obj, index) => {
-                if (index === 0 || index === objs.length - 1) return;
-
-                const targetCenterY = minCenter + step * index;
-                const currentCenter = obj.getCenterPoint();
-                const deltaY = targetCenterY - currentCenter.y;
-
-                obj.set("top", obj.top + deltaY);
-                obj.setCoords();
-              });
-            }
-
-            // 3. 重新建立选中区
-            const newSelection = new fabric.ActiveSelection(objs, { canvas: App.canvas });
-            App.canvas.setActiveObject(newSelection);
-
-            App.canvas.requestRenderAll();
-            // 4. 强制刷新面板 (防止因解组导致的面板闪烁隐藏)
-            App.ui.updateInspector();
-            App.history.saveState();
-          },
-
-          // 图层列表管理
-          // 在 App.ui 对象内替换 updateLayerList 方法
           updateLayerList: function () {
             const list = document.getElementById("layerList");
             list.innerHTML = "";
-
-            // 1. 获取普通对象 (反转数组，让最上面的图层显示在列表顶部)
             const objs = App.canvas
               .getObjects()
               .filter((o) => !o.isGrid)
               .reverse();
             const activeObjs = App.canvas.getActiveObjects();
 
-            // 2. 获取背景图片
-            const bgImg = App.canvas.backgroundImage;
-
-            if (objs.length === 0 && !bgImg) {
+            if (objs.length === 0 && !App.canvas.backgroundImage) {
               list.innerHTML = '<div class="text-gray-400 text-center py-4">暂无图层</div>';
               return;
             }
 
-            // --- 辅助函数：创建图层行 ---
-            const createLayerRow = (iconClass, nameText, isActive, isBackground, onClick, onDelete) => {
+            const createRow = (icon, name, isActive, isBg, onClick, onDel) => {
               const div = document.createElement("div");
-              // 给背景图层加一点特殊的背景色(bg-gray-50)以示区别
-              const bgClass = isBackground ? "bg-gray-50/80 italic text-slate-500" : "hover:bg-gray-50";
-
-              div.className = `layer-item flex items-center justify-between px-2 py-2 border-b border-gray-100 last:border-0 cursor-pointer transition ${isActive ? "active" : bgClass}`;
-
-              // 左侧内容
-              div.innerHTML = `
-      <div class="flex items-center gap-2 w-full overflow-hidden">
-        <i class="ph ${iconClass} ${isActive ? "text-blue-500" : "text-gray-400"}"></i>
-        <span class="truncate select-none text-xs ${isActive ? "font-bold" : ""}">${nameText}</span>
-      </div>
-    `;
-
-              // 右侧删除按钮
-              const delBtn = document.createElement("button");
-              delBtn.className = "p-1 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded transition shrink-0 ml-2";
-              delBtn.title = "删除图层";
-              delBtn.innerHTML = `<i class="ph ph-trash"></i>`;
-
-              delBtn.onclick = (e) => {
-                e.stopPropagation(); // 阻止触发选中
-                onDelete();
-              };
-
+              div.className = `layer-item flex items-center justify-between px-2 py-2 border-b border-gray-100 last:border-0 cursor-pointer transition ${
+                isActive ? "active" : isBg ? "bg-gray-50/80 italic text-slate-500" : "hover:bg-gray-50"
+              }`;
+              div.innerHTML = `<div class="flex items-center gap-2 w-full overflow-hidden"><i class="ph ${icon} ${isActive ? "text-blue-500" : "text-gray-400"}"></i><span class="truncate select-none text-xs ${
+                isActive ? "font-bold" : ""
+              }">${name}</span></div><button class="p-1 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded ml-2"><i class="ph ph-trash"></i></button>`;
               div.onclick = onClick;
-              div.appendChild(delBtn);
-
+              div.querySelector("button").onclick = (e) => {
+                e.stopPropagation();
+                onDel();
+              };
               return div;
             };
 
-            // --- A. 渲染普通对象 ---
             objs.forEach((o) => {
               let icon = "ph-square";
               if (o.type.includes("text")) icon = "ph-text-t";
               else if (o.type === "image") icon = "ph-image";
-              else if (["rect", "circle", "triangle", "polygon", "path"].includes(o.type)) icon = "ph-shapes";
               else if (o.type === "line") icon = "ph-line-segment";
+              else if (["rect", "circle", "triangle"].includes(o.type)) icon = "ph-shapes";
 
-              const name = o.text ? o.text.substring(0, 10) : o.type === "image" ? "图片" : o.type;
-              const isActive = activeObjs.includes(o);
-
-              const row = createLayerRow(
-                icon,
-                name,
-                isActive,
-                false,
-                (e) => {
-                  // 点击选中逻辑
-                  if (e.ctrlKey) {
-                    const newSel = isActive ? activeObjs.filter((i) => i !== o) : [...activeObjs, o];
-                    const sel = new fabric.ActiveSelection(newSel, { canvas: App.canvas });
-                    App.canvas.setActiveObject(sel);
-                  } else {
-                    App.canvas.setActiveObject(o);
+              list.appendChild(
+                createRow(
+                  icon,
+                  o.text ? o.text.substring(0, 10) : o.type === "image" ? "图片" : o.type,
+                  activeObjs.includes(o),
+                  false,
+                  (e) => {
+                    if (e.ctrlKey) {
+                      const newSel = activeObjs.includes(o) ? activeObjs.filter((i) => i !== o) : [...activeObjs, o];
+                      App.canvas.setActiveObject(new fabric.ActiveSelection(newSel, { canvas: App.canvas }));
+                    } else App.canvas.setActiveObject(o);
+                    App.canvas.requestRenderAll();
+                  },
+                  () => {
+                    App.canvas.remove(o);
+                    App.canvas.discardActiveObject();
+                    App.ui.updateLayerList();
+                    App.history.saveState();
                   }
-                  App.canvas.requestRenderAll();
-                },
-                () => {
-                  // 删除逻辑
-                  App.canvas.remove(o);
-                  App.canvas.discardActiveObject();
-                  App.ui.updateLayerList();
-                  App.ui.updateInspector();
-                  App.history.saveState();
-                }
+                )
               );
-              list.appendChild(row);
             });
 
-            // --- B. 渲染背景图片 (固定在列表最底部) ---
-            if (bgImg) {
-              const bgRow = createLayerRow(
-                "ph-image-square", // 图标
-                "【背景】图片", // 名称带前缀
-                false, // 背景图不可被常规选中
-                true, // 标记为背景类型
-                () => {
-                  // 点击背景行不做选中操作
-                  // 可选：Utils.toast("背景图已锁定，请使用右侧按钮删除");
-                },
-                () => {
-                  // 删除背景逻辑
-                  if (confirm("确定要移除背景图片吗？")) {
-                    App.paper.clearBackground();
+            if (App.canvas.backgroundImage) {
+              list.appendChild(
+                createRow(
+                  "ph-image-square",
+                  "【背景】图片",
+                  false,
+                  true,
+                  () => {},
+                  () => {
+                    if (confirm("移除背景?")) App.paper.clearBackground();
                   }
-                }
+                )
               );
-              list.appendChild(bgRow);
             }
           },
 
           moveLayer: function (dir) {
-            const active = App.canvas.getActiveObject();
-            if (!active) return;
-            if (dir === "up") active.bringForward();
-            else active.sendBackwards();
-
-            // 保持网格在最底层
-            App.canvas.getObjects().forEach((o) => {
-              if (o.isGrid) App.canvas.sendToBack(o);
-            });
-
+            const act = App.canvas.getActiveObject();
+            if (!act) return;
+            dir === "up" ? act.bringForward() : act.sendBackwards();
+            App.canvas.getObjects().forEach((o) => o.isGrid && App.canvas.sendToBack(o));
             App.canvas.requestRenderAll();
             this.updateLayerList();
             App.history.saveState();
           },
 
-          toggleFullScreen: function () {
-            if (!document.fullscreenElement) document.documentElement.requestFullscreen();
-            else if (document.exitFullscreen) document.exitFullscreen();
+          showLoading: (m) => {
+            const el = document.getElementById("loadingOverlay");
+            if (el) {
+              el.querySelector("p").innerText = m;
+              el.classList.remove("hidden");
+            }
+          },
+          hideLoading: () => document.getElementById("loadingOverlay")?.classList.add("hidden"),
+          toggleFullScreen: () => (!document.fullscreenElement ? document.documentElement.requestFullscreen() : document.exitFullscreen()),
+          showModal: (id) => document.getElementById(id).classList.remove("hidden"),
+          hideModal: (id) => document.getElementById(id).classList.add("hidden"),
+
+          alignObject: function (mode) {
+            const act = App.canvas.getActiveObject();
+            if (!act) return;
+            const cfg = App.paper.getSettings();
+            const contentW = App.state.baseWidth - cfg.marginLeft - cfg.marginRight;
+            if (mode === "centerH") act.set({ left: cfg.marginLeft + contentW / 2, originX: "center" });
+            else if (mode === "left") act.set({ left: cfg.marginLeft, originX: "left" });
+            else if (mode === "right") act.set({ left: App.state.baseWidth - cfg.marginRight, originX: "right" });
+            act.setCoords();
+            App.canvas.requestRenderAll();
+            this.updateGeo(null, null, act);
+            App.history.saveState();
           },
 
-          showModal: function (id) {
-            document.getElementById(id).classList.remove("hidden");
+          align: function (mode) {
+            if (App.state.selectionQueue.length < 2) return;
+            const queue = [...App.state.selectionQueue],
+              anchor = queue[0],
+              aRect = anchor.getBoundingRect(true);
+            App.canvas.discardActiveObject();
+            queue.forEach((o) => o.setCoords());
+
+            queue.forEach((obj) => {
+              if (obj === anchor) return;
+              const r = obj.getBoundingRect(true);
+              let dx = 0,
+                dy = 0;
+              if (mode === "left") dx = aRect.left - r.left;
+              else if (mode === "center") dx = aRect.left + aRect.width / 2 - (r.left + r.width / 2);
+              else if (mode === "right") dx = aRect.left + aRect.width - (r.left + r.width);
+              else if (mode === "top") dy = aRect.top - r.top;
+              else if (mode === "middle") dy = aRect.top + aRect.height / 2 - (r.top + r.height / 2);
+              else if (mode === "bottom") dy = aRect.top + aRect.height - (r.top + r.height);
+              if (dx) obj.set("left", obj.left + dx);
+              if (dy) obj.set("top", obj.top + dy);
+              obj.setCoords();
+            });
+            App.canvas.setActiveObject(new fabric.ActiveSelection(queue, { canvas: App.canvas })).requestRenderAll();
+            App.history.saveState();
           },
-          hideModal: function (id) {
-            document.getElementById(id).classList.add("hidden");
+
+          distribute: function (mode) {
+            const act = App.canvas.getActiveObject();
+            if (!act || act.type !== "activeSelection" || act.getObjects().length < 3) return Utils.toast("至少需要3个元素", "info");
+
+            const objs = act.getObjects();
+            App.canvas.discardActiveObject();
+            const isH = mode === "horizontal";
+            objs.sort((a, b) => (isH ? a.left - b.left : a.top - b.top));
+
+            const first = objs[0],
+              last = objs[objs.length - 1];
+            const getC = (o) => (isH ? o.getCenterPoint().x : o.getCenterPoint().y);
+            const step = (getC(last) - getC(first)) / (objs.length - 1);
+
+            objs.forEach((o, i) => {
+              if (i === 0 || i === objs.length - 1) return;
+              const target = getC(first) + step * i;
+              const delta = target - getC(o);
+              o.set(isH ? "left" : "top", (isH ? o.left : o.top) + delta).setCoords();
+            });
+
+            App.canvas.setActiveObject(new fabric.ActiveSelection(objs, { canvas: App.canvas })).requestRenderAll();
+            this.updateInspector();
+            App.history.saveState();
           },
         },
 
-        // --- 6. IO 系统 (存取、导入导出) ---
+        // --- IO (存取/打印) ---
         io: {
-          _getHighResDataURL: function () {
-            const originalVpt = App.canvas.viewportTransform.slice();
-            const originalWidth = App.canvas.width;
-            const originalHeight = App.canvas.height;
-            const originalActive = App.canvas.getActiveObject();
-
-            const originalBg = App.canvas.backgroundColor;
-
-            const currentBgColor = App.paper.getSettings().paperBgColor;
-
-            App.canvas.discardActiveObject();
-
-            App.canvas.getObjects().forEach((obj) => {
-              if (obj.type === "image" && !obj.isGrid) {
-                obj.set({ stroke: null, strokeWidth: 0 });
-              }
-            });
-
-            App.canvas.setBackgroundColor(currentBgColor, () => {});
-
-            App.canvas.setViewportTransform([1, 0, 0, 1, 0, 0]);
-            App.canvas.setDimensions({
-              width: App.state.baseWidth,
-              height: App.state.baseHeight,
-            });
-
-            App.canvas.renderAll();
-
-            // 导出图片
-            const dataUrl = App.canvas.toDataURL({
-              format: "jpeg",
-              quality: 0.9,
-              multiplier: 3,
-            });
-
-            App.canvas.setViewportTransform(originalVpt);
-            App.canvas.setDimensions({
-              width: originalWidth,
-              height: originalHeight,
-            });
-
-            App.canvas.setBackgroundColor(originalBg, () => {});
-
-            if (originalActive) {
-              App.canvas.setActiveObject(originalActive);
-            }
-            App.canvas.requestRenderAll();
-
-            return dataUrl;
-          },
-
-          saveProject: function () {
-            const thumb = App.canvas.toDataURL({ format: "png", multiplier: 0.7, quality: 0.8 });
-
-            const json = App.canvas.toJSON(["id", "isGrid", "selectable", "evented"]);
-            json.objects = json.objects.filter((o) => !o.isGrid);
-            const project = {
-              version: "4.0",
-              timestamp: new Date().toISOString(),
-              settings: App.paper.getSettings(),
-              paperSize: document.getElementById("paperSize").value,
-              thumbnail: thumb,
-              canvasData: json,
-            };
-
-            const blob = new Blob([JSON.stringify(project)], { type: "application/json" });
-            const url = URL.createObjectURL(blob);
-            const a = document.createElement("a");
-            a.href = url;
-            a.download = `信笺纸_${new Date().getTime()}.paper`;
-            a.click();
-            URL.revokeObjectURL(url);
-            Utils.toast("项目已保存");
-            App.state.hasUnsavedChanges = false;
-          },
-          //加载项目数据的核心逻辑
-          loadProjectData: function (data) {
-            try {
-              // 1. 解析基础设置
-              const s = data.settings;
-              if (s) {
-                const setVal = (id, v) => {
-                  if (document.getElementById(id)) document.getElementById(id).value = v;
-                };
-                const setChk = (id, v) => {
-                  if (document.getElementById(id)) document.getElementById(id).checked = v;
-                };
-
-                setVal("marginTop", Math.round(Utils.px2mm(s.marginTop)));
-                setVal("marginBottom", Math.round(Utils.px2mm(s.marginBottom)));
-                setVal("marginLeft", Math.round(Utils.px2mm(s.marginLeft)));
-                setVal("marginRight", Math.round(Utils.px2mm(s.marginRight)));
-                setVal("rowCount", s.rowCount);
-                setVal("gridColor", s.gridColor);
-                setVal("strokeWidth", s.strokeWidth);
-                setVal("paperBgColor", s.paperBgColor || "#ffffff");
-                setChk("doubleFirst", s.doubleFirst);
-                setChk("doubleLast", s.doubleLast);
-                setChk("gridDashed", s.gridDashed);
-                setVal("gridDashArray", s.gridDashArray);
-
-                if (data.paperSize) setVal("paperSize", data.paperSize);
-              }
-
-              // 2. 应用尺寸并清空画布
-              App.paper.updateSize();
-              App.canvas.clear();
-
-              const onLoaded = () => {
-                App.paper.drawGrid(); // 重绘网格
-                App.ui.hideModal("welcomeModal"); // 关闭选择模态框
-                App.ui.updateLayerList(); // 更新图层列表
-                App.history.reset(); // 重置历史记录
-                App.state.hasUnsavedChanges = false;
-                App.ui.hideLoading();
-                const btn = document.getElementById("bgClearBtn");
-                if (App.canvas.backgroundImage) {
-                  btn.classList.remove("hidden");
-                } else {
-                  btn.classList.add("hidden");
+          _getFontCss: () =>
+            [...document.styleSheets]
+              .flatMap((s) => {
+                try {
+                  return [...s.cssRules].filter((r) => r.type === CSSRule.FONT_FACE_RULE).map((r) => r.cssText);
+                } catch {
+                  return [];
                 }
-              };
+              })
+              .join("\n"),
 
-              if (data.canvasData) {
-                App.canvas.loadFromJSON(data.canvasData, onLoaded);
-              } else {
-                onLoaded();
-              }
-            } catch (err) {
-              console.error(err);
-              Utils.toast("数据解析异常", "error");
-              App.ui.hideLoading(); // 发生错误时也要关闭
-            }
-          },
-          loadProject: function (file) {
-            if (!file) return;
-            App.ui.showLoading("正在打开文件..."); // 显示 loading
-
-            const reader = new FileReader();
-            reader.onload = (e) => {
-              try {
-                const data = JSON.parse(e.target.result);
-                this.loadProjectData(data); // 调用核心逻辑
-              } catch (err) {
-                Utils.toast("文件格式错误", "error");
-              } finally {
-                App.ui.hideLoading(); // 关闭 loading
-              }
-            };
-            reader.readAsText(file);
-          },
-          exportPDF: function () {
-            const imgData = this._getHighResDataURL();
-
-            const w = App.state.currentPaper.w;
-            const h = App.state.currentPaper.h;
-            const orientation = w > h ? "l" : "p";
-
-            const { jsPDF } = window.jspdf;
-            const pdf = new jsPDF({
-              orientation: orientation,
-              unit: "mm",
-              format: [w, h],
-            });
-
-            pdf.addImage(imgData, "PNG", 0, 0, w, h);
-            pdf.save(`信笺纸导出_${new Date().getTime()}.pdf`);
-            Utils.toast("PDF 导出成功");
+          _printAsImage: function () {
+            const dataUrl = App.canvas.toDataURL({ format: "jpeg", quality: 0.9, multiplier: 3 });
+            this._createPrintIframe(`<img src="${dataUrl}" onload="setTimeout(()=>window.print(),500);" style="width:100%">`);
+            Utils.toast("已切换兼容模式打印");
           },
 
-          print: function () {
-            const dataUrl = this._getHighResDataURL();
-            const iframeId = "print-iframe-sandbox";
-            let iframe = document.getElementById(iframeId);
-            if (iframe) document.body.removeChild(iframe);
-
-            iframe = document.createElement("iframe");
-            iframe.id = iframeId;
-            iframe.style.cssText = "position:fixed; top:0; left:0; width:1px; height:1px; opacity:0; pointer-events:none;";
-            document.body.appendChild(iframe);
-
-            const doc = iframe.contentWindow.document;
-            const w = App.state.currentPaper.w;
-            const h = App.state.currentPaper.h;
-
-            // 关键修改：将结束标签打断，防止 live-server 注入
-            const content =
-              `
-              <!DOCTYPE html>
-              <html>
-                <head>
-                  <style>
-                    body { display: flex; justify-content: center; align-items: flex-start; margin: 0; padding: 0;}
-                    img { width: 100%; height: auto; object-fit: contain; display: block;border:none; -webkit-optimize-contrast; }
-                    @page {
-                      size: ${w}mm ${h}mm; 
-                      margin: 0; 
-                    }
-                    @media print {
-                      html, body, #printContainer {
-                        margin: 0 !important;
-                        padding: 0 !important;
-                        overflow: hidden !important; 
-                        width: 100%; height: 100%;
-                      }
-                      #printContainer {
-                        display: block !important;
-                        position: absolute; top: 0; left: 0; z-index: 99999;
-                      }
-                    }
-                  </style>
-                </head>
-                <body>
-                  <img src="${dataUrl}" onload="setTimeout(() => { window.print(); }, 200);">
-                ` +
-              "<" +
-              "/body>" +
-              `
-              ` +
-              "<" +
-              "/html>";
-
+          _createPrintIframe: function (content, css = "") {
+            const id = "print-iframe-sandbox";
+            let f = document.getElementById(id);
+            if (f) f.remove();
+            f = document.createElement("iframe");
+            f.id = id;
+            f.style.cssText = "position:fixed;top:0;opacity:0;pointer-events:none;";
+            document.body.appendChild(f);
+            const doc = f.contentWindow.document;
             doc.open();
-            doc.write(content);
+            doc.write(
+              `<html><head><style>@page{size:${App.state.currentPaper.w}mm ${App.state.currentPaper.h}mm;margin:0}body{margin:0;display:flex;justify-content:center}${css}</style></head><body>${content}</body></html>`
+            );
             doc.close();
           },
 
+          print: async function () {
+            try {
+              const vC = await App.vector.getExportCanvas(false);
+              vC.setViewportTransform([1, 0, 0, 1, 0, 0]);
+              const svg = vC.toSVG({ suppressPreamble: true, viewBox: { x: 0, y: 0, width: App.state.baseWidth, height: App.state.baseHeight } });
+              vC.dispose();
+              this._createPrintIframe(`${svg}<script>setTimeout(()=>window.print(),500)<\/script>`, this._getFontCss());
+              App.ui.hideLoading();
+            } catch (e) {
+              console.warn(e);
+              App.ui.hideLoading();
+              this._printAsImage();
+            }
+          },
+
+          exportPDF: async function () {
+            const btn = document.querySelector('button[onclick="App.io.exportPDF()"]');
+            const oldTxt = btn ? btn.innerHTML : "";
+            if (btn) {
+              btn.disabled = true;
+              btn.innerHTML = `<i class="ph ph-spinner animate-spin"></i> 处理中...`;
+            }
+
+            try {
+              const vC = await App.vector.getExportCanvas(true);
+              vC.setViewportTransform([1, 0, 0, 1, 0, 0]);
+              const svg = vC.toSVG({ suppressPreamble: true, viewBox: { x: 0, y: 0, width: App.state.baseWidth, height: App.state.baseHeight } });
+              vC.dispose();
+
+              const { w, h } = App.state.currentPaper;
+              const pdf = new window.jspdf.jsPDF({ orientation: w > h ? "l" : "p", unit: "mm", format: [w, h] });
+              await pdf.svg(new DOMParser().parseFromString(svg, "image/svg+xml").documentElement, { x: 0, y: 0, width: w, height: h });
+              pdf.save(`信笺纸_${Date.now()}.pdf`);
+              Utils.toast("PDF 导出成功");
+            } catch (e) {
+              console.warn(e);
+              Utils.toast("导出失败，请重试", "error");
+            } finally {
+              App.ui.hideLoading();
+              if (btn) {
+                btn.disabled = false;
+                btn.innerHTML = oldTxt;
+              }
+            }
+          },
+
+          saveProject: function () {
+            const json = App.canvas.toJSON(["id", "isGrid", "selectable", "evented"]);
+            json.objects = json.objects.filter((o) => !o.isGrid);
+            const blob = new Blob(
+              [
+                JSON.stringify({
+                  version: "4.0",
+                  timestamp: new Date().toISOString(),
+                  settings: App.paper.getSettings(),
+                  paperSize: document.getElementById("paperSize").value,
+                  thumbnail: App.canvas.toDataURL({ format: "png", multiplier: 0.5 }),
+                  canvasData: json,
+                }),
+              ],
+              { type: "application/json" }
+            );
+
+            const a = document.createElement("a");
+            a.href = URL.createObjectURL(blob);
+            a.download = `信笺纸_${Date.now()}.paper`;
+            a.click();
+            URL.revokeObjectURL(a.href);
+            Utils.toast("项目已保存");
+            App.state.hasUnsavedChanges = false;
+          },
+
+          loadProjectData: function (data) {
+            try {
+              if (data.settings) {
+                const s = data.settings;
+                const setV = (id, v) => document.getElementById(id) && (document.getElementById(id).value = v);
+                const setC = (id, v) => document.getElementById(id) && (document.getElementById(id).checked = v);
+
+                setV("marginTop", Math.round(Utils.px2mm(s.marginTop)));
+                setV("marginBottom", Math.round(Utils.px2mm(s.marginBottom)));
+                setV("marginLeft", Math.round(Utils.px2mm(s.marginLeft)));
+                setV("marginRight", Math.round(Utils.px2mm(s.marginRight)));
+                setV("rowCount", s.rowCount);
+                setV("gridColor", s.gridColor);
+                setV("strokeWidth", s.strokeWidth);
+                setV("paperBgColor", s.paperBgColor || "#ffffff");
+                setC("doubleFirst", s.doubleFirst);
+                setC("doubleLast", s.doubleLast);
+                setC("gridDashed", s.gridDashed);
+                setV("gridDashArray", s.gridDashArray);
+                if (data.paperSize) setV("paperSize", data.paperSize);
+              }
+              App.paper.updateSize();
+              App.canvas.clear();
+              const done = () => {
+                App.paper.drawGrid();
+                App.ui.hideModal("welcomeModal");
+                App.ui.updateLayerList();
+                App.history.reset();
+                App.state.hasUnsavedChanges = false;
+                App.ui.hideLoading();
+                document.getElementById("bgClearBtn").classList.toggle("hidden", !App.canvas.backgroundImage);
+              };
+              data.canvasData ? App.canvas.loadFromJSON(data.canvasData, done) : done();
+            } catch (e) {
+              Utils.toast("数据解析异常", "error");
+              App.ui.hideLoading();
+            }
+          },
+
+          loadProject: function (file) {
+            if (!file) return;
+            App.ui.showLoading("打开中...");
+            const r = new FileReader();
+            r.onload = (e) => {
+              try {
+                this.loadProjectData(JSON.parse(e.target.result));
+              } catch {
+                Utils.toast("文件格式错误", "error");
+              } finally {
+                App.ui.hideLoading();
+              }
+            };
+            r.readAsText(file);
+          },
+
           copy: function () {
-            const active = App.canvas.getActiveObject();
-            if (!active) return;
-            active.clone((cloned) => {
-              App.state.clipboard = cloned;
-              App.state.pasteCount = 0;
-            });
+            const act = App.canvas.getActiveObject();
+            if (act)
+              act.clone((c) => {
+                App.state.clipboard = c;
+                App.state.pasteCount = 0;
+              });
           },
 
           paste: function () {
             if (!App.state.clipboard) return;
             App.state.pasteCount++;
-            const offset = 20 * App.state.pasteCount;
-
-            App.state.clipboard.clone((cloned) => {
+            App.state.clipboard.clone((c) => {
               App.canvas.discardActiveObject();
-              cloned.set({ left: cloned.left + offset, top: cloned.top + offset, evented: true });
-
-              if (cloned.type === "activeSelection") {
-                cloned.canvas = App.canvas;
-                cloned.forEachObject((o) => App.canvas.add(o));
-                cloned.setCoords();
-              } else {
-                App.canvas.add(cloned);
-              }
-
-              App.canvas.setActiveObject(cloned);
-              App.canvas.requestRenderAll();
+              c.set({ left: c.left + 20 * App.state.pasteCount, top: c.top + 20 * App.state.pasteCount, evented: true });
+              if (c.type === "activeSelection") {
+                c.canvas = App.canvas;
+                c.forEachObject((o) => App.canvas.add(o));
+                c.setCoords();
+              } else App.canvas.add(c);
+              App.canvas.setActiveObject(c).requestRenderAll();
               App.ui.updateLayerList();
               App.history.saveState();
             });
           },
         },
 
-        // --- 7. 模板系统 ---
-        templates: {
-          data: [],
-
-          init: async function () {
-            try {
-              // 这里的路径请根据实际情况调整，如果使用了服务器，确保 fetch 能获取到
-              const response = await fetch("./static/templates.json");
-              this.data = await response.json();
-              this.renderGrid();
-            } catch (error) {
-              console.error("Templates load failed:", error);
-              Utils.toast("模板列表加载失败", "error");
-            }
+        // --- 矢量导出辅助 ---
+        vector: {
+          fontCache: {},
+          loadFont: async function (family) {
+            if (this.fontCache[family]) return this.fontCache[family];
+            const url = { "SourceHanSerifCN-Bold": "./static/SourceHanSerifCN-Bold.ttf" }[family];
+            if (!url) return null;
+            return new Promise((r) => opentype.load(url, (e, f) => r(e ? null : (this.fontCache[family] = f))));
           },
 
-          renderGrid: function () {
-            const grid = document.getElementById("templateGrid");
-            if (!grid) return;
-            grid.innerHTML = "";
+          getExportCanvas: async function (convertText) {
+            App.ui.showLoading(convertText ? "文字转曲中..." : "准备打印数据...");
+            const json = App.canvas.toJSON(["id", "isGrid", "selectable", "evented"]);
 
-            this.data.forEach((t) => {
-              const div = document.createElement("div");
-              div.className = "template-card bg-white p-3 rounded-xl border border-gray-200 cursor-pointer transition flex flex-col gap-2";
+            // 强制包含网格
+            const grids = App.canvas
+              .getObjects()
+              .filter((o) => o.isGrid)
+              .map((o) => ({ ...o.toObject(["stroke", "strokeWidth", "strokeDashArray"]), excludeFromExport: false }));
+            json.objects = [...grids, ...json.objects];
 
-              // 兼容 thumbnail 为空的情况
-              const visualContent = t.thumbnail ? `<img src="${t.thumbnail}" class="h-full w-auto object-contain mx-auto" alt="${t.name}">` : `<i class="ph ph-file-plus text-3xl text-gray-300"></i>`;
+            const tC = new fabric.Canvas(null, { width: App.state.baseWidth, height: App.state.baseHeight, backgroundColor: App.paper.getSettings().paperBgColor });
 
-              div.innerHTML = `
-        <div class="h-36 bg-gray-50 rounded-lg overflow-hidden flex items-center justify-center border border-gray-100">
-            ${visualContent}
-        </div>
-        <div>
-            <h3 class="font-bold text-slate-700 text-sm">${t.name}</h3>
-            <p class="text-slate-400 line-clamp-1 text-xs">${t.desc || "点击创建"}</p>
-        </div>`;
-
-              div.onclick = () => this.load(t.id);
-              grid.appendChild(div);
+            return new Promise((resolve) => {
+              tC.loadFromJSON(json, async () => {
+                if (convertText) {
+                  const objs = tC.getObjects();
+                  for (let i = 0; i < objs.length; i++) {
+                    const o = objs[i];
+                    if (!o.isGrid && ["i-text", "text", "textbox"].includes(o.type)) {
+                      const f = await this.loadFont(o.fontFamily);
+                      if (f) {
+                        try {
+                          const path = new fabric.Path(f.getPath(o.text, 0, 0, o.fontSize).toPathData(2), {
+                            ...o.toObject(["fill", "stroke", "strokeWidth", "opacity", "scaleX", "scaleY", "angle", "shadow"]),
+                            originX: "center",
+                            originY: "center",
+                          });
+                          path.setPositionByOrigin(o.getCenterPoint(), "center", "center");
+                          tC.insertAt(path, i, false);
+                          tC.remove(o);
+                        } catch {}
+                      }
+                    }
+                  }
+                }
+                tC.renderAll();
+                resolve(tC);
+              });
             });
           },
+        },
 
-          // [核心修改] 加载逻辑
-          load: async function (id) {
-            const t = this.data.find((i) => i.id === id);
-            if (!t) return;
-
-            // 情况 1: 存在 URL，远程获取 .paper 文件
-            if (t.url) {
-              App.ui.showLoading("正在下载模板...");
-
-              try {
-                const res = await fetch(t.url);
-                if (!res.ok) throw new Error("Network response was not ok");
-
-                const projectData = await res.json();
-
-                // 使用 App.io 中重构好的逻辑加载数据
-                App.io.loadProjectData(projectData);
-              } catch (error) {
-                console.error(error);
-                Utils.toast("模板文件加载失败", "error");
-                App.ui.hideLoading();
+        // --- 模板系统 ---
+        templates: {
+          data: [],
+          init: async function () {
+            try {
+              this.data = await (await fetch("./static/templates.json")).json();
+              const grid = document.getElementById("templateGrid");
+              if (grid) {
+                grid.innerHTML = "";
+                this.data.forEach((t) => {
+                  const d = document.createElement("div");
+                  d.className = "template-card bg-white p-3 rounded-xl border border-gray-200 cursor-pointer transition flex flex-col gap-2";
+                  d.innerHTML = `<div class="h-36 bg-gray-50 rounded-lg overflow-hidden flex items-center justify-center border border-gray-100">${
+                    t.thumbnail ? `<img src="${t.thumbnail}" class="h-full w-auto object-contain">` : '<i class="ph ph-file-plus text-3xl text-gray-300"></i>'
+                  }</div><div><h3 class="font-bold text-slate-700 text-sm">${t.name}</h3><p class="text-slate-400 text-xs">${t.desc || "点击创建"}</p></div>`;
+                  d.onclick = () => this.load(t.id);
+                  grid.appendChild(d);
+                });
               }
-            }
-            // 情况 2: 没有 URL，执行默认 A4 空白逻辑
-            else {
-              this.loadBlankA4();
+            } catch {
+              Utils.toast("模板加载失败", "error");
             }
           },
 
-          // 默认空白 A4 逻辑 (从原代码逻辑提取并简化)
-          loadBlankA4: function () {
-            App.ui.showLoading("正在创建...");
-
-            // 模拟稍微的延迟，让 UI 转换更平滑
-            setTimeout(() => {
-              // 1. 重置 UI 控件到默认值
-              const defaults = {
-                paperSize: "A4",
-                marginTop: 35,
-                marginBottom: 35,
-                marginLeft: 28,
-                marginRight: 28,
-                rowCount: 0,
-                gridColor: "#e11d48",
-                strokeWidth: 1,
-              };
-
-              document.getElementById("paperSize").value = defaults.paperSize;
-              document.getElementById("marginTop").value = defaults.marginTop;
-              document.getElementById("marginBottom").value = defaults.marginBottom;
-              document.getElementById("marginLeft").value = defaults.marginLeft;
-              document.getElementById("marginRight").value = defaults.marginRight;
-              document.getElementById("rowCount").value = defaults.rowCount;
-              document.getElementById("gridColor").value = defaults.gridColor;
-              document.getElementById("strokeWidth").value = defaults.strokeWidth;
-
-              // 复选框默认值
-              document.getElementById("doubleFirst").checked = true;
-              document.getElementById("doubleLast").checked = true;
-              document.getElementById("gridDashed").checked = false;
-
-              // 2. 应用纸张尺寸
-              App.paper.updateSize();
-
-              // 3. 清空画布
-              App.canvas.clear();
-              App.paper.drawGrid(); // 重绘网格
-
-              // 4. 重置状态
-              App.ui.hideModal("welcomeModal");
-              App.ui.updateLayerList();
-              App.history.reset();
-              App.ui.hideLoading();
-            }, 200);
+          load: async function (id) {
+            const t = this.data.find((i) => i.id === id);
+            if (t?.url) {
+              App.ui.showLoading("下载模板...");
+              try {
+                App.io.loadProjectData(await (await fetch(t.url)).json());
+              } catch {
+                Utils.toast("加载失败", "error");
+                App.ui.hideLoading();
+              }
+            } else {
+              App.ui.showLoading("创建中...");
+              setTimeout(() => {
+                ["paperSize", "marginTop", "marginBottom", "marginLeft", "marginRight", "rowCount", "gridColor", "strokeWidth"].forEach(
+                  (k, i) => (document.getElementById(k).value = ["A4", 35, 35, 28, 28, 0, "#e11d48", 1][i])
+                );
+                document.getElementById("doubleFirst").checked = true;
+                document.getElementById("doubleLast").checked = true;
+                document.getElementById("gridDashed").checked = false;
+                App.paper.updateSize();
+                App.canvas.clear();
+                App.paper.drawGrid();
+                App.ui.hideModal("welcomeModal");
+                App.ui.updateLayerList();
+                App.history.reset();
+                App.ui.hideLoading();
+              }, 200);
+            }
           },
         },
       };
 
-      // --- 8. 初始化与事件绑定 ---
-
+      // --- 初始化绑定 ---
       function initHotkeys() {
-        const isInputActive = () => {
-          const el = document.activeElement;
-          return el && (el.tagName === "INPUT" || el.tagName === "TEXTAREA" || el.contentEditable === "true");
-        };
+        const isInput = () => ["INPUT", "TEXTAREA"].includes(document.activeElement?.tagName) || document.activeElement?.contentEditable === "true";
 
-        // 1. 撤销/重做 (保留原逻辑，但增加输入框检测)
         hotkeys("ctrl+z,command+z", (e) => {
-          if (isInputActive()) return;
-          e.preventDefault();
-          App.history.undo();
+          if (!isInput()) {
+            e.preventDefault();
+            App.history.undo();
+          }
         });
-
         hotkeys("ctrl+y,command+y", (e) => {
-          if (isInputActive()) return;
-          e.preventDefault();
-          App.history.redo();
+          if (!isInput()) {
+            e.preventDefault();
+            App.history.redo();
+          }
         });
-
-        // 2. 保存/打开 (通常全局有效，但为了保险也可以加检测)
         hotkeys("ctrl+s,command+s", (e) => {
           e.preventDefault();
           App.io.saveProject();
         });
-
         hotkeys("ctrl+o,command+o", (e) => {
           e.preventDefault();
           document.getElementById("projectImportInput").click();
         });
+        hotkeys("ctrl+p,command+p", (e) => {
+          e.preventDefault();
+          App.io.print();
+        });
+        hotkeys("del,backspace", (e) => {
+          if (!isInput()) {
+            e.preventDefault();
+            App.tools.deleteActive();
+          }
+        });
 
         hotkeys("ctrl+c,command+c", (e) => {
-          if (isInputActive()) return;
-          const selection = window.getSelection();
-          if (selection && selection.toString().length > 0) {
-            return;
-          }
-          const active = App.canvas.getActiveObject();
-          if (active) {
+          if (isInput() || window.getSelection()?.toString().length > 0) return;
+          if (App.canvas.getActiveObject()) {
             e.preventDefault();
             App.io.copy();
           }
         });
 
         hotkeys("ctrl+v,command+v", (e) => {
-          if (isInputActive()) return;
+          if (isInput()) return;
           if (App.state.clipboard) {
             e.preventDefault();
             App.io.paste();
           }
         });
 
-        // 4. 粘贴
-        hotkeys("ctrl+v,command+v", (e) => {
-          if (isInputActive()) return; // 在输入框里按 Ctrl+V，执行默认粘贴文字
-
-          if (App.state.clipboard) {
+        hotkeys("up,down,left,right", (e, h) => {
+          if (!isInput() && App.canvas.getActiveObject()) {
             e.preventDefault();
-            App.io.paste();
-          }
-        });
-
-        hotkeys("ctrl+p,command+p", (e) => {
-          e.preventDefault();
-          App.io.print();
-        });
-
-        // 删除键
-        hotkeys("del,backspace", (e) => {
-          if (isInputActive()) return;
-          e.preventDefault();
-          App.tools.deleteActive();
-        });
-
-        // 方向键微调
-        hotkeys("up,down,left,right", (e, handler) => {
-          if (isInputActive()) return;
-          if (App.canvas.getActiveObject()) {
-            e.preventDefault();
-            App.tools.nudge(handler.key);
+            App.tools.nudge(h.key);
           }
         });
       }
 
-      document.getElementById("imgUpload").onchange = function (e) {
+      document.getElementById("imgUpload").onchange = function () {
         App.tools.handleImageUpload(this);
       };
-      document.getElementById("projectImportInput").onchange = function (e) {
+      document.getElementById("projectImportInput").onchange = function () {
         App.io.loadProject(this.files[0]);
       };
-
-      document.getElementById("welcomeModal").addEventListener("click", (e) => {
-        if (e.target.id === "welcomeModal") App.ui.hideModal("welcomeModal");
-      });
-
-      document.getElementById("imgReplaceInput").onchange = function (e) {
+      document.getElementById("imgReplaceInput").onchange = function () {
         App.tools.replaceActiveImage(this);
+      };
+      document.getElementById("welcomeModal").onclick = (e) => {
+        if (e.target.id === "welcomeModal") App.ui.hideModal("welcomeModal");
       };
 
       document.addEventListener("fullscreenchange", () => {
         const icon = document.getElementById("fsIcon");
-        icon.classList.toggle("ph-corners-out", !document.fullscreenElement);
-        icon.classList.toggle("ph-corners-in", !!document.fullscreenElement);
+        icon.className = `ph ph-corners-${document.fullscreenElement ? "in" : "out"} text-lg`;
         setTimeout(() => App.zoom.autoFit(), 100);
       });
 
@@ -2724,11 +2109,7 @@
         App.init();
         App.templates.init();
         initHotkeys();
-        window.onbeforeunload = function () {
-          if (App.state.hasUnsavedChanges) {
-            return "您的更改可能未保存，确定要离开吗？";
-          }
-        };
+        window.onbeforeunload = () => (App.state.hasUnsavedChanges ? "未保存" : undefined);
       };
     </script>
   </body>
